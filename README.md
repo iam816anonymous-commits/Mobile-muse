@@ -3,6 +3,7 @@
 LocalAgent is an autonomous Android Accessibility Service agent targeting API levels 26–28 (Android 8/9).
 
 ## Features
+- **Dashboard Launcher Activity**: Minimal dashboard (`MainActivity`) showing Accessibility Service and Overlay permission status with direct settings navigation.
 - **Accessibility Service**: Implements `LocalAgentService` with `canRetrieveWindowContent` and `canPerformGestures`.
 - **State Management & Circuit Breaker**: `TaskStateManager` enforces task tracking and a strict 15-action circuit breaker limit.
 - **Safety Kill Switch & Emergency Abort**:
@@ -13,6 +14,16 @@ LocalAgent is an autonomous Android Accessibility Service agent targeting API le
 - **Offline Rule Graph & Caching**: Screen fingerprinting (`ScreenHasher`) and rule graph (`RuleLedger` -> `local_rules.json`) enabling 100% offline action replay.
 - **Reliable Gestures & Fallback**: `GestureExecutor` for synthetic taps/swipes with automatic bounding-center coordinate fallback when `performAction(ACTION_CLICK)` fails.
 - **Memory Optimization**: Memory pressure `onTrimMemory` handler, 7-level depth capping, invisible node filtering, and strict `.recycle()` calls on all traversed `AccessibilityNodeInfo` objects.
+
+## First-Time Setup
+
+1. **Launch App**: Open `LocalAgent` from the Android app drawer/home screen.
+2. **Enable Accessibility Service**:
+   - Tap **Enable Accessibility Service** in the dashboard to open system settings.
+   - Locate and enable `LocalAgent` under Installed Services.
+3. **Grant Overlay Permission**:
+   - Tap **Grant Overlay Permission** in the dashboard.
+   - Toggle **Allow display over other apps** for `LocalAgent` to enable the 32dp floating status HUD.
 
 ## Command-Line Automation via ADB Shell
 
