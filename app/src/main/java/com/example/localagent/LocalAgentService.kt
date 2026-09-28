@@ -55,6 +55,8 @@ data class NodeData(
 
 open class LocalAgentService : AccessibilityService() {
 
+    var isProcessingGoal: Boolean = false
+
     companion object {
         private const val TAG = "LocalAgentService"
         const val ACTION_GOAL_COMPLETED = "com.localagent.GOAL_COMPLETED"

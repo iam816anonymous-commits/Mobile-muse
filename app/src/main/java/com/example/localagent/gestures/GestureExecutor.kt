@@ -53,6 +53,22 @@ class GestureExecutor(private val service: AccessibilityService) {
         val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         Log.d(TAG, "Dispatching swipe gesture from ($startX, $startY) to ($endX, $endY)")
-        return service.dispatchGesture(gesture, callback, null)
+        val dispatched = service.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                Log.i("GESTURE", "Swipe physically executed")
+                callback?.onCompleted(gestureDescription)
+            }
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                Log.w("GESTURE", "Swipe cancelled by system")
+                callback?.onCancelled(gestureDescription)
+            }
+        }, null)
+        try {
+            val broadcastMethod = service.javaClass.getMethod("broadcastTelemetryLog", String::class.java, String::class.java)
+            broadcastMethod.invoke(service, "GESTURE", "Coordinate swipe dispatched from ($startX, $startY) to ($endX, $endY) -> Dispatched: $dispatched")
+        } catch (e: Exception) {
+            Log.d("GESTURE", "Coordinate swipe dispatched from ($startX, $startY) to ($endX, $endY) -> Dispatched: $dispatched")
+        }
+        return dispatched
     }
 }

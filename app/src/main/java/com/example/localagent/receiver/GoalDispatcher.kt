@@ -60,48 +60,76 @@ class GoalDispatcher(
                     val goalId = UUID.randomUUID().toString()
 
                     coroutineScope.launch {
+                        service.isProcessingGoal = true
                         try {
-                            service.stateManager.startTask(TaskGoal(id = goalId, description = goalText))
-                        } catch (e: Exception) {
-                            Log.w(TAG, "TaskManager state call ignored during mock test", e)
-                        }
-
-                        // Local Primitives & Hardware
-                        if (lowerGoal.contains("flashlight on") || lowerGoal.contains("turn on torch")) {
-                            val tools = DeviceToolsManager(service)
-                            tools.toggleFlashlight(true)
-                            try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else if (lowerGoal.contains("flashlight off") || lowerGoal.contains("turn off torch")) {
-                            val tools = DeviceToolsManager(service)
-                            tools.toggleFlashlight(false)
-                            try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else if (lowerGoal.contains("vibrate") || lowerGoal.contains("haptic")) {
-                            val tools = DeviceToolsManager(service)
-                            tools.triggerHaptic(150L)
-                            try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else if (lowerGoal.contains("what is in this photo") || lowerGoal.contains("describe last photo") || lowerGoal.contains("read text on screen")) {
-                            val visionBridge = GeminiVisionBridge()
-                            val dummyBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-                            val resultText = try {
-                                visionBridge.analyzeVisualSync(dummyBase64, goalText)
-                            } catch (e: Exception) { "A photo containing UI elements." }
-                            service.broadcastTelemetryLog("VISION", "Analyzed: $resultText")
-                            service.voiceSynthesizer?.speak(resultText)
-                            try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else if (lowerGoal.contains("search this on google lens") || lowerGoal.contains("identify with lens")) {
-                            val dummyUri = Uri.parse("content://media/external/images/media/1")
-                            LensLauncher.launchGoogleLens(service, dummyUri)
-                            service.broadcastTelemetryLog("VISION", "Dispatched Google Lens search")
-                            try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else {
-                            // Generic ReAct UI Agent Pipeline
                             try {
-                                AppResolver.resolveAndLaunch(service, goalText)
-                                AutonomousEngine.processCurrentScreen(service, goalText)
+                                service.stateManager.startTask(TaskGoal(id = goalId, description = goalText))
                             } catch (e: Exception) {
-                                Log.e(TAG, "ReAct execution loop encountered error", e)
-                                service.broadcastTelemetryLog("WARN", "ReAct loop error: ${e.message}")
+                                Log.w(TAG, "TaskManager state call ignored during mock test", e)
                             }
+
+                            // Math Expression Detection
+                            val hasMath = lowerGoal.contains(Regex("(?i)(calculate|compute|\\d+\\s*[*+\\-/x]\\s*\\d+)"))
+                            if (hasMath) {
+                                service.broadcastTelemetryLog("MATH", "Math expression detected in goal: '$goalText'")
+                                val calcSkill = com.example.localagent.skills.CalculatorSkill(service)
+                                val calcResult = calcSkill.evaluateExpression(goalText)
+                                service.broadcastTelemetryLog("MATH", "Calculated result: $calcResult")
+                                service.voiceSynthesizer?.speak("The answer is $calcResult")
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                                return@launch
+                            }
+
+                            // Local Primitives & Hardware
+                            if (lowerGoal.contains("flashlight on") || lowerGoal.contains("turn on torch")) {
+                                val tools = DeviceToolsManager(service)
+                                tools.toggleFlashlight(true)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else if (lowerGoal.contains("flashlight off") || lowerGoal.contains("turn off torch")) {
+                                val tools = DeviceToolsManager(service)
+                                tools.toggleFlashlight(false)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else if (lowerGoal.contains("vibrate") || lowerGoal.contains("haptic")) {
+                                val tools = DeviceToolsManager(service)
+                                tools.triggerHaptic(150L)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else if (lowerGoal.contains("what is in this photo") || lowerGoal.contains("describe last photo") || lowerGoal.contains("read text on screen")) {
+                                val visionBridge = GeminiVisionBridge()
+                                val dummyBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                                val resultText = try {
+                                    visionBridge.analyzeVisualSync(dummyBase64, goalText)
+                                } catch (e: Exception) { "A photo containing UI elements." }
+                                service.broadcastTelemetryLog("VISION", "Analyzed: $resultText")
+                                service.voiceSynthesizer?.speak(resultText)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else if (lowerGoal.contains("search this on google lens") || lowerGoal.contains("identify with lens")) {
+                                val dummyUri = Uri.parse("content://media/external/images/media/1")
+                                LensLauncher.launchGoogleLens(service, dummyUri)
+                                service.broadcastTelemetryLog("VISION", "Dispatched Google Lens search")
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else {
+                                // Compound Intent Extraction & Generic ReAct UI Agent Pipeline
+                                try {
+                                    if (lowerGoal.startsWith("open ")) {
+                                        val subParts = lowerGoal.removePrefix("open ").split(" and ", limit = 2)
+                                        val appTarget = subParts[0].trim()
+                                        service.broadcastTelemetryLog("INTENT", "Compound intent: launching target app '$appTarget'")
+                                        AppResolver.resolveAndLaunch(service, appTarget)
+                                        val subAction = subParts.getOrNull(1)?.trim()
+                                        if (!subAction.isNullOrEmpty()) {
+                                            AutonomousEngine.processCurrentScreen(service, subAction)
+                                        }
+                                    } else {
+                                        AppResolver.resolveAndLaunch(service, goalText)
+                                        AutonomousEngine.processCurrentScreen(service, goalText)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "ReAct execution loop encountered error", e)
+                                    service.broadcastTelemetryLog("WARN", "ReAct loop error: ${e.message}")
+                                }
+                            }
+                        } finally {
+                            service.isProcessingGoal = false
                         }
 
                         onGoalProcessed?.invoke(goalText)

@@ -10,6 +10,34 @@ import com.example.localagent.voice.VoiceEngine
 
 class CalculatorSkill(private val service: LocalAgentService) {
 
+    fun evaluateExpression(input: String): String {
+        val sanitized = sanitizeExpression(input)
+        val tokens = sanitized.replace("x", "*").replace("÷", "/")
+        return try {
+            val parts = tokens.split(Regex("(?<=[+\\-*/])|(?=[+\\-*/])")).map { it.trim() }.filter { it.isNotEmpty() }
+            if (parts.size >= 3) {
+                var acc = parts[0].toDouble()
+                var i = 1
+                while (i < parts.size - 1) {
+                    val op = parts[i]
+                    val nextVal = parts[i + 1].toDouble()
+                    when (op) {
+                        "+" -> acc += nextVal
+                        "-" -> acc -= nextVal
+                        "*" -> acc *= nextVal
+                        "/" -> if (nextVal != 0.0) acc /= nextVal
+                    }
+                    i += 2
+                }
+                if (acc == acc.toLong().toDouble()) acc.toLong().toString() else acc.toString()
+            } else {
+                sanitized
+            }
+        } catch (e: Exception) {
+            sanitized
+        }
+    }
+
     companion object {
         private const val TAG = "CalculatorSkill"
 

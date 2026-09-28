@@ -9,6 +9,15 @@ object StorageManager {
 
     private const val TAG = "StorageManager"
 
+    fun getStorageDirectory(): File {
+        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val agentDir = File(downloadDir, "LocalAgent")
+        if (!agentDir.exists()) {
+            agentDir.mkdirs()
+        }
+        return agentDir
+    }
+
     fun getPersistentStorageDir(context: Context): File {
         val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val agentDir = File(downloadDir, "LocalAgent")
