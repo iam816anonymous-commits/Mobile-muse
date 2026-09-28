@@ -12,20 +12,24 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.localagent.engine.AppResolver
+import com.example.localagent.engine.AutonomousEngine
 import com.example.localagent.gestures.ActionExecutor
 import com.example.localagent.gestures.GestureExecutor
 import com.example.localagent.hud.FloatingHudManager
 import com.example.localagent.intents.IntentLauncher
-import com.example.localagent.memory.ActionRule
-import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.MemoryLedger
 import com.example.localagent.memory.RuleLedger
-import com.example.localagent.memory.ScreenHasher
 import com.example.localagent.network.AiBridgeClient
+import com.example.localagent.receiver.GoalBroadcastReceiver
 import com.example.localagent.routines.TestRoutines
 import com.example.localagent.safety.KillSwitchReceiver
-import com.example.localagent.serializer.ScreenSerializer
 import com.example.localagent.state.TaskStateManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -52,6 +56,8 @@ open class LocalAgentService : AccessibilityService() {
     lateinit var gestureExecutor: GestureExecutor
     lateinit var hudManager: FloatingHudManager
     private var killSwitchReceiver: KillSwitchReceiver? = null
+    private var goalBroadcastReceiver: GoalBroadcastReceiver? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val backgroundExecutor = Executors.newSingleThreadScheduledExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private var lastVolumeDownTime: Long = 0L
@@ -70,12 +76,15 @@ open class LocalAgentService : AccessibilityService() {
         }
 
         registerKillSwitch()
+        registerGoalReceiver()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         hudManager.hide()
         unregisterKillSwitch()
+        unregisterGoalReceiver()
+        serviceScope.cancel()
         backgroundExecutor.shutdown()
     }
 
@@ -142,85 +151,8 @@ open class LocalAgentService : AccessibilityService() {
             return
         }
 
-        val rootNode = rootInActiveWindow ?: return
-        try {
-            val extractedNodes = mutableListOf<NodeData>()
-            traverseAndExtractNode(rootNode, extractedNodes)
-            Log.d(TAG, "Extracted ${extractedNodes.size} nodes from active window")
-
-            val packageName = rootNode.packageName?.toString()
-            val screenFingerprint = ScreenHasher.computeFingerprint(packageName, extractedNodes)
-            val userGoal = state.goal?.description ?: "Default Goal"
-
-            // 1. Check local rule graph for matching transition
-            val localRule = ruleLedger.getActionRule(screenFingerprint, userGoal)
-            if (localRule != null) {
-                Log.d(TAG, "Local rule graph match found for fingerprint $screenFingerprint. Executing offline.")
-                executeActionRule(localRule)
-                memoryLedger.recordStep(
-                    stepIndex = stateManager.getCurrentState().currentStepIndex,
-                    action = "OFFLINE_RULE_GRAPH_ACTION: ${localRule.type}",
-                    success = true
-                )
-            } else {
-                // 2. Query AI Bridge if no local rule exists
-                val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
-                aiBridgeClient.sendPayloadAsync(serializedScreen, userGoal) { result ->
-                    result.onSuccess { aiResponse ->
-                        Log.d(TAG, "AI Bridge response received: $aiResponse")
-                        val newRule = ActionRule(type = ActionType.CLICK, textPayload = aiResponse)
-                        ruleLedger.addTransition(screenFingerprint, userGoal, newRule)
-                        memoryLedger.recordStep(
-                            stepIndex = stateManager.getCurrentState().currentStepIndex,
-                            action = "AI_BRIDGE_ACTION",
-                            success = true
-                        )
-                    }.onFailure { error ->
-                        Log.e(TAG, "AI Bridge request failed", error)
-                        memoryLedger.recordStep(
-                            stepIndex = stateManager.getCurrentState().currentStepIndex,
-                            action = "AI_BRIDGE_ACTION",
-                            success = false,
-                            failureCode = error.message
-                        )
-                    }
-                }
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error traversing node tree", e)
-            memoryLedger.recordStep(
-                stepIndex = stateManager.getCurrentState().currentStepIndex,
-                action = "EXTRACT_NODES",
-                success = false,
-                failureCode = e.javaClass.simpleName
-            )
-        } finally {
-            rootNode.recycle()
-        }
-    }
-
-    private fun executeActionRule(rule: ActionRule) {
-        when (rule.type) {
-            ActionType.CLICK -> {
-                rule.targetBounds?.let { bounds ->
-                    gestureExecutor.tap(bounds.centerX().toFloat(), bounds.centerY().toFloat())
-                }
-            }
-            ActionType.SWIPE -> {
-                rule.targetBounds?.let { bounds ->
-                    gestureExecutor.swipe(
-                        bounds.centerX().toFloat(),
-                        bounds.bottom.toFloat(),
-                        bounds.centerX().toFloat(),
-                        bounds.top.toFloat()
-                    )
-                }
-            }
-            ActionType.INPUT -> {
-                Log.d(TAG, "Executing INPUT rule payload: ${rule.textPayload}")
-            }
-        }
+        val goalText = state.goal?.description ?: return
+        AutonomousEngine.processCurrentScreen(this, goalText)
     }
 
     override fun onInterrupt() {
@@ -359,6 +291,34 @@ open class LocalAgentService : AccessibilityService() {
 
     fun runYouTubePlaybackTest(query: String = "Kotlin Android Tutorial"): Boolean {
         return TestRoutines.runYouTubePlaybackTest(this, query)
+    }
+
+    private fun registerGoalReceiver() {
+        if (goalBroadcastReceiver == null) {
+            goalBroadcastReceiver = GoalBroadcastReceiver(this) { goalText ->
+                serviceScope.launch {
+                    Log.d(TAG, "Resolving app for goal in background coroutine: $goalText")
+                    AppResolver.resolveAndLaunch(this@LocalAgentService, goalText)
+                }
+            }
+            val filter = IntentFilter(GoalBroadcastReceiver.ACTION_EXECUTE_GOAL)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(goalBroadcastReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(goalBroadcastReceiver, filter)
+            }
+        }
+    }
+
+    private fun unregisterGoalReceiver() {
+        goalBroadcastReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unregistering goal receiver", e)
+            }
+            goalBroadcastReceiver = null
+        }
     }
 
     private fun registerKillSwitch() {

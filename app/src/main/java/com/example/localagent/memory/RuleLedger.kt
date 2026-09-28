@@ -8,7 +8,8 @@ import java.io.File
 enum class ActionType {
     CLICK,
     INPUT,
-    SWIPE
+    SWIPE,
+    TERMINATE
 }
 
 data class ActionRule(
