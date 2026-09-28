@@ -70,6 +70,13 @@ object MotorActuator {
     fun type(service: LocalAgentService, node: AccessibilityNodeInfo?, textToType: String): Boolean {
         if (node == null) return false
 
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        val targetX = if (rect.width() > 0) rect.centerX().toFloat() else 360f
+        val targetY = if (rect.height() > 0) rect.centerY().toFloat() else 720f
+
+        com.example.localagent.hud.PointerIndicatorManager.showKeystroke(textToType, targetX, targetY)
+
         try {
             // Level 1: Standard ACTION_SET_TEXT
             node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)

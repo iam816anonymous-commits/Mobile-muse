@@ -115,6 +115,7 @@ open class LocalAgentService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        com.example.localagent.hud.PointerIndicatorManager.destroy()
         instance = null
         hudManager.hide()
         voiceSynthesizer?.shutdown()
@@ -247,13 +248,18 @@ open class LocalAgentService : AccessibilityService() {
         info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.notificationTimeout = 100
-        info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+        info.flags = info.flags or
+                AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         serviceInfo = info
 
         com.example.localagent.safety.ServiceProtector.startForegroundProtection(this)
 
         hudManager.show()
-        broadcastTelemetryLog("SYS", "LocalAgentService connected, protected in foreground, and online")
+        com.example.localagent.hud.PointerIndicatorManager.init(this)
+        broadcastTelemetryLog("SYS", "LocalAgentService connected with interactive window flags enabled")
 
         MemoryRehydrationManager.rehydrateMemory(this)
     }
