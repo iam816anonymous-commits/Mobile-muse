@@ -78,6 +78,16 @@ class GoalDispatcher(
                                 return@launch
                             }
 
+                            // Dual-Tier Web Search Detection
+                            val isWebSearch = lowerGoal.contains("chrome") || lowerGoal.contains("google search") ||
+                                    lowerGoal.startsWith("search ") || lowerGoal.contains("search for ") || lowerGoal.startsWith("look up ")
+                            if (isWebSearch) {
+                                service.broadcastTelemetryLog("SEARCH", "Web search goal detected: '$goalText'")
+                                com.example.localagent.engine.BrowserAutomation.executeSearch(service, goalText)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                                return@launch
+                            }
+
                             // Local Primitives & Hardware (Dual Flashlight Control)
                             if (lowerGoal.contains("front flash on") || lowerGoal.contains("turn on front flash") || lowerGoal.contains("front light on")) {
                                 val tools = DeviceToolsManager(service)
