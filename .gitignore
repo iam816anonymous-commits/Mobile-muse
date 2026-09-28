@@ -10,3 +10,7 @@ app/build/
 capture
 .externalNativeBuild
 .cxx
+*.json
+*.log
+app/*.json
+app/LocalAgent/

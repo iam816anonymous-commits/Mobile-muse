@@ -19,7 +19,7 @@ object GenericUIOperator {
                 try {
                     clickableNode = findClickableAncestor(node) ?: node
                     val clicked = if (service != null) {
-                        service.performClickWithFallback(clickableNode)
+                        MotorActuator.click(service, clickableNode)
                     } else {
                         clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     }
@@ -64,7 +64,7 @@ object GenericUIOperator {
                 try {
                     clickableNode = findClickableAncestor(node) ?: node
                     if (service != null) {
-                        service.performClickWithFallback(clickableNode)
+                        MotorActuator.click(service, clickableNode)
                     } else {
                         clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     }

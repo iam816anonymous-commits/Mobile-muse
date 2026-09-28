@@ -68,26 +68,6 @@ class GoalDispatcher(
                                 Log.w(TAG, "TaskManager state call ignored during mock test", e)
                             }
 
-                            // Math Expression Detection
-                            val hasMath = lowerGoal.contains(Regex("(?i)(calculate|compute|\\d+\\s*[*+\\-/x^%]\\s*\\d+)"))
-                            if (hasMath) {
-                                service.broadcastTelemetryLog("MATH", "Math expression detected in goal: '$goalText'")
-                                val calcSkill = com.example.localagent.skills.CalculatorSkill(service)
-                                calcSkill.executeCalculation(goalText, service.voiceSynthesizer)
-                                try { service.stateManager.completeTask() } catch (e: Exception) {}
-                                return@launch
-                            }
-
-                            // Dual-Tier Web Search Detection
-                            val isWebSearch = lowerGoal.contains("chrome") || lowerGoal.contains("google search") ||
-                                    lowerGoal.startsWith("search ") || lowerGoal.contains("search for ") || lowerGoal.startsWith("look up ")
-                            if (isWebSearch) {
-                                service.broadcastTelemetryLog("SEARCH", "Web search goal detected: '$goalText'")
-                                com.example.localagent.engine.BrowserAutomation.executeSearch(service, goalText)
-                                try { service.stateManager.completeTask() } catch (e: Exception) {}
-                                return@launch
-                            }
-
                             // Local Primitives & Hardware (Dual Flashlight Control)
                             if (lowerGoal.contains("front flash on") || lowerGoal.contains("turn on front flash") || lowerGoal.contains("front light on")) {
                                 val tools = DeviceToolsManager(service)
@@ -124,60 +104,12 @@ class GoalDispatcher(
                                 service.broadcastTelemetryLog("VISION", "Dispatched Google Lens search")
                                 try { service.stateManager.completeTask() } catch (e: Exception) {}
                             } else {
-                            // Autonomous Intent Router & App Discovery
+                                // TaskExecutionHub Routing
                                 try {
-                                var targetAppQuery: String? = null
-                                var remainingAction: String? = null
-
-                                val isExplicitLaunch = lowerGoal.startsWith("open ") || lowerGoal.startsWith("launch ") || lowerGoal.startsWith("start ")
-                                if (isExplicitLaunch) {
-                                    val cleanGoal = lowerGoal.removePrefix("open ").removePrefix("launch ").removePrefix("start ").trim()
-                                    val parts = cleanGoal.split(" and ", limit = 2)
-                                    targetAppQuery = parts[0].trim()
-                                    remainingAction = parts.getOrNull(1)?.trim()
-                                } else {
-                                    targetAppQuery = lowerGoal
-                                    remainingAction = lowerGoal
-                                }
-
-                                val resolvedPackage = com.example.localagent.engine.AppIndexer.resolveAppByQuery(service, targetAppQuery)
-                                if (resolvedPackage != null) {
-                                    val appList = com.example.localagent.engine.AppIndexer.getInstalledApps(service)
-                                    val appLabel = appList.find { it.packageName == resolvedPackage }?.label ?: targetAppQuery
-                                    service.broadcastTelemetryLog("LAUNCH", "Launching $appLabel ($resolvedPackage)")
-                                    service.voiceSynthesizer?.speak("Opening $appLabel")
-
-                                    val launched = com.example.localagent.engine.AppLauncher.launchApp(service, resolvedPackage)
-                                    if (launched) {
-                                        // Poll rootInActiveWindow until the target package is active (max 3000ms)
-                                        var elapsed = 0L
-                                        while (elapsed < 3000L) {
-                                            kotlinx.coroutines.delay(200L)
-                                            elapsed += 200L
-                                            val root = service.getActiveWindowRoot()
-                                            val currentPkg = root?.packageName?.toString()
-                                            root?.recycle()
-                                            if (currentPkg.equals(resolvedPackage, ignoreCase = true)) {
-                                                break
-                                            }
-                                        }
-
-                                        val actionToRun = if (!remainingAction.isNullOrEmpty() && remainingAction != targetAppQuery) {
-                                            remainingAction
-                                        } else {
-                                            goalText
-                                        }
-                                        AutonomousEngine.processCurrentScreen(service, actionToRun)
-                                        }
-                                } else if (isExplicitLaunch) {
-                                    service.broadcastTelemetryLog("WARN", "No installed app matched '$targetAppQuery'")
-                                    service.voiceSynthesizer?.speak("I could not find an app for that on your device.")
-                                    } else {
-                                        AutonomousEngine.processCurrentScreen(service, goalText)
-                                    }
+                                    com.example.localagent.engine.TaskExecutionHub.executeGoal(service, goalText)
                                 } catch (e: Exception) {
-                                Log.e(TAG, "Autonomous intent router encountered error", e)
-                                service.broadcastTelemetryLog("WARN", "Intent router error: ${e.message}")
+                                    Log.e(TAG, "TaskExecutionHub execution error", e)
+                                    service.broadcastTelemetryLog("WARN", "TaskHub error: ${e.message}")
                                 }
                             }
                         } finally {
