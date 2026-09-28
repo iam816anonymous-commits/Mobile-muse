@@ -80,14 +80,22 @@ class GoalDispatcher(
                                 return@launch
                             }
 
-                            // Local Primitives & Hardware
-                            if (lowerGoal.contains("flashlight on") || lowerGoal.contains("turn on torch")) {
+                            // Local Primitives & Hardware (Dual Flashlight Control)
+                            if (lowerGoal.contains("front flash on") || lowerGoal.contains("turn on front flash") || lowerGoal.contains("front light on")) {
                                 val tools = DeviceToolsManager(service)
-                                tools.toggleFlashlight(true)
+                                tools.toggleFrontFlash(true)
                                 try { service.stateManager.completeTask() } catch (e: Exception) {}
-                            } else if (lowerGoal.contains("flashlight off") || lowerGoal.contains("turn off torch")) {
+                            } else if (lowerGoal.contains("front flash off") || lowerGoal.contains("turn off front flash") || lowerGoal.contains("front light off")) {
                                 val tools = DeviceToolsManager(service)
-                                tools.toggleFlashlight(false)
+                                tools.toggleFrontFlash(false)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else if (lowerGoal.contains("flashlight on") || lowerGoal.contains("turn on torch") || lowerGoal.contains("rear flash on")) {
+                                val tools = DeviceToolsManager(service)
+                                tools.toggleRearFlash(true)
+                                try { service.stateManager.completeTask() } catch (e: Exception) {}
+                            } else if (lowerGoal.contains("flashlight off") || lowerGoal.contains("turn off torch") || lowerGoal.contains("rear flash off")) {
+                                val tools = DeviceToolsManager(service)
+                                tools.toggleRearFlash(false)
                                 try { service.stateManager.completeTask() } catch (e: Exception) {}
                             } else if (lowerGoal.contains("vibrate") || lowerGoal.contains("haptic")) {
                                 val tools = DeviceToolsManager(service)

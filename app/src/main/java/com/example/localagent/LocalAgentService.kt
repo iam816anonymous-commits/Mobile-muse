@@ -247,8 +247,10 @@ open class LocalAgentService : AccessibilityService() {
         info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
         serviceInfo = info
 
+        com.example.localagent.safety.ServiceProtector.startForegroundProtection(this)
+
         hudManager.show()
-        broadcastTelemetryLog("SYS", "LocalAgentService connected and online")
+        broadcastTelemetryLog("SYS", "LocalAgentService connected, protected in foreground, and online")
 
         MemoryRehydrationManager.rehydrateMemory(this)
     }

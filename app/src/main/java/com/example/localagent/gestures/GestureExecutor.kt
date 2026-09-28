@@ -9,6 +9,8 @@ class GestureExecutor(private val service: AccessibilityService) {
 
     companion object {
         private const val TAG = "GestureExecutor"
+        const val DEFAULT_DISPLAY_WIDTH = 720f
+        const val DEFAULT_DISPLAY_HEIGHT = 1440f
     }
 
     @JvmOverloads

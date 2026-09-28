@@ -34,28 +34,24 @@ class CameraSkill(private val service: LocalAgentService) {
                                 toggleNode.recycle()
                             }
                         } else {
-                            // OEM Coordinate Fallback Strategy B
+                            // Tecno Camon i Click 720x1440 Display Lens Flip Fallbacks
                             val metrics = service.resources.displayMetrics
-                            val width = metrics.widthPixels.toFloat()
-                            val height = metrics.heightPixels.toFloat()
+                            val width = if (metrics.widthPixels <= 0) 720f else metrics.widthPixels.toFloat()
+                            val height = if (metrics.heightPixels <= 0) 1440f else metrics.heightPixels.toFloat()
 
-                            // Position 1: Top right
-                            service.gestureExecutor.tap(width * 0.85f, height * 0.08f)
+                            // Position 1: Tecno Camera UI lens flip bottom right (590, 1280)
+                            val flipX1 = if (width == 720f) 590f else width * 0.82f
+                            val flipY1 = if (height == 1440f) 1280f else height * 0.88f
+                            service.gestureExecutor.tap(flipX1, flipY1)
 
-                            // Position 2: Bottom right near shutter
+                            // Position 2: Tecno Camera UI top right flip (610, 80)
                             handler.postDelayed({
-                                service.gestureExecutor.tap(width * 0.82f, height * 0.88f)
+                                val flipX2 = if (width == 720f) 610f else width * 0.85f
+                                val flipY2 = if (height == 1440f) 80f else height * 0.08f
+                                service.gestureExecutor.tap(flipX2, flipY2)
                             }, 200L)
 
-                            // Position 3: Double tap center
-                            handler.postDelayed({
-                                service.gestureExecutor.tap(width * 0.5f, height * 0.5f)
-                                handler.postDelayed({
-                                    service.gestureExecutor.tap(width * 0.5f, height * 0.5f)
-                                }, 100L)
-                            }, 400L)
-
-                            service.broadcastTelemetryLog("ACT", "Camera switch OEM coordinate fallbacks dispatched")
+                            service.broadcastTelemetryLog("ACT", "Camera switch Tecno 720x1440 coordinate fallbacks dispatched")
                         }
                     }
 
@@ -73,12 +69,14 @@ class CameraSkill(private val service: LocalAgentService) {
                                         shutterNode.recycle()
                                     }
                                 } else {
-                                    // Attempt 2: Fixed bottom center coordinate tap (0.50f, 0.88f)
+                                    // Attempt 2: Tecno Camon i Click shutter coordinate tap (360, 1280)
                                     val metrics = service.resources.displayMetrics
-                                    val centerX = metrics.widthPixels * 0.50f
-                                    val bottomY = metrics.heightPixels * 0.88f
-                                    service.gestureExecutor.tap(centerX, bottomY)
-                                    service.broadcastTelemetryLog("ACT", "Camera shutter bottom-center coordinate tap dispatched")
+                                    val width = if (metrics.widthPixels <= 0) 720f else metrics.widthPixels.toFloat()
+                                    val height = if (metrics.heightPixels <= 0) 1440f else metrics.heightPixels.toFloat()
+                                    val shutterX = if (width == 720f) 360f else width * 0.50f
+                                    val shutterY = if (height == 1440f) 1280f else height * 0.88f
+                                    service.gestureExecutor.tap(shutterX, shutterY)
+                                    service.broadcastTelemetryLog("ACT", "Tecno camera shutter coordinate tap ($shutterX, $shutterY) dispatched")
 
                                     // Attempt 3: Hardware Key Event fallback
                                     handler.postDelayed({

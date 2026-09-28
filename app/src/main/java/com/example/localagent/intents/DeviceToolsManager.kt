@@ -20,7 +20,19 @@ class DeviceToolsManager(private val service: LocalAgentService) {
         private const val TAG = "DeviceToolsManager"
     }
 
+    fun toggleRearFlash(enable: Boolean) {
+        toggleFlashByFacing(enable, android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK, "Rear Flash")
+    }
+
+    fun toggleFrontFlash(enable: Boolean) {
+        toggleFlashByFacing(enable, android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT, "Front Flash")
+    }
+
     fun toggleFlashlight(enable: Boolean) {
+        toggleRearFlash(enable)
+    }
+
+    private fun toggleFlashByFacing(enable: Boolean, facingTarget: Int, label: String) {
         val cameraManager = service.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
         if (cameraManager != null) {
             try {
@@ -28,7 +40,7 @@ class DeviceToolsManager(private val service: LocalAgentService) {
                     val chars = cameraManager.getCameraCharacteristics(id)
                     val facing = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
                     val flashAvailable = chars.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-                    facing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK && flashAvailable
+                    facing == facingTarget && flashAvailable
                 } ?: cameraManager.cameraIdList.firstOrNull { id ->
                     val chars = cameraManager.getCameraCharacteristics(id)
                     chars.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
@@ -36,11 +48,11 @@ class DeviceToolsManager(private val service: LocalAgentService) {
 
                 if (cameraId != null) {
                     cameraManager.setTorchMode(cameraId, enable)
-                    service.broadcastTelemetryLog("TOOLS", "Hardware Flashlight set to: $enable")
+                    service.broadcastTelemetryLog("TOOLS", "Hardware $label set to: $enable (ID: $cameraId)")
                     return
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "CameraManager setTorchMode failed, using Quick Settings fallback", e)
+                Log.w(TAG, "CameraManager setTorchMode failed for $label, using Quick Settings fallback", e)
             }
         }
 

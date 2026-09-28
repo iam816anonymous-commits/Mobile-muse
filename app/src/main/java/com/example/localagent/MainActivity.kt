@@ -442,7 +442,7 @@ open class MainActivity : Activity() {
         permGridRow4.addView(tvAudioBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow4.addView(btnAudioSettings)
 
-        val permGridRow5 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 16) }
+        val permGridRow5 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 8) }
         tvStorageBadge = createBadgeView("STORAGE: [REQUIRED]")
         val btnStorageSettings = Button(this).apply {
             text = "Grant Storage"
@@ -453,6 +453,37 @@ open class MainActivity : Activity() {
         }
         permGridRow5.addView(tvStorageBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow5.addView(btnStorageSettings)
+
+        val hiosRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 16) }
+        val tvHiosBadge = createBadgeView("HiOS FREEZE DEFENSE: [RECOMMENDED]").apply {
+            background = createBadgeDrawable(Color.parseColor("#0284C7"))
+        }
+        val btnHiosSettings = Button(this).apply {
+            text = "HiOS Whitelist"
+            textSize = 10f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#0284C7"))
+            setOnClickListener {
+                try {
+                    val intent = Intent().apply {
+                        setClassName("com.transsion.phonemaster", "com.transsion.phonemaster.autostart.AutoStartManagementActivity")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    try {
+                        val settingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(settingsIntent)
+                    } catch (ex: Exception) {
+                        appendLog("[SYS] HiOS Manager intent unavailable")
+                    }
+                }
+            }
+        }
+        hiosRow.addView(tvHiosBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+        hiosRow.addView(btnHiosSettings)
 
         val diagRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 8, 0, 16) }
         val btnAppAudit = Button(this).apply {
@@ -486,6 +517,7 @@ open class MainActivity : Activity() {
         tabSystemView.addView(permGridRow3)
         tabSystemView.addView(permGridRow4)
         tabSystemView.addView(permGridRow5)
+        tabSystemView.addView(hiosRow)
         tabSystemView.addView(diagRow)
 
         rootLayout.addView(headerText)
