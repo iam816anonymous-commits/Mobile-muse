@@ -7,6 +7,8 @@ import android.util.Log
 import com.example.localagent.LocalAgentService
 import com.example.localagent.engine.AppResolver
 import com.example.localagent.engine.DiagnosticRunner
+import com.example.localagent.engine.WebWorkflowLearner
+import com.example.localagent.intents.DeviceToolsManager
 import com.example.localagent.intents.SemanticIntentRouter
 import com.example.localagent.skills.CalculatorSkill
 import com.example.localagent.skills.CameraSkill
@@ -46,7 +48,16 @@ class GoalDispatcher(
                         }
 
                         val lowerGoal = goalText.lowercase().trim()
-                        if (lowerGoal.contains("calculate") || lowerGoal.contains("compute") || lowerGoal.contains("sum")) {
+
+                        if (lowerGoal.contains("flashlight on") || lowerGoal.contains("turn on torch")) {
+                            val tools = DeviceToolsManager(service)
+                            tools.toggleFlashlight(true)
+                            try { service.stateManager.completeTask() } catch (e: Exception) {}
+                        } else if (lowerGoal.contains("flashlight off") || lowerGoal.contains("turn off torch")) {
+                            val tools = DeviceToolsManager(service)
+                            tools.toggleFlashlight(false)
+                            try { service.stateManager.completeTask() } catch (e: Exception) {}
+                        } else if (lowerGoal.contains("calculate") || lowerGoal.contains("compute") || lowerGoal.contains("sum")) {
                             val expression = extractExpression(goalText)
                             service.broadcastTelemetryLog("SKILL", "Calculator executed: $expression")
                             try {
@@ -75,9 +86,9 @@ class GoalDispatcher(
 
                             if (!handledByRouter) {
                                 try {
-                                    AppResolver.resolveAndLaunch(service, goalText)
+                                    WebWorkflowLearner.learnAndExecute(service, goalText, "TargetApp")
                                 } catch (e: Exception) {
-                                    e.printStackTrace()
+                                    AppResolver.resolveAndLaunch(service, goalText)
                                 }
                             }
                         }
