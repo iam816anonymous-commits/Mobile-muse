@@ -8,8 +8,10 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.localagent.intents.IntentLauncher
 import com.example.localagent.memory.MemoryLedger
 import com.example.localagent.network.AiBridgeClient
+import com.example.localagent.routines.TestRoutines
 import com.example.localagent.safety.KillSwitchReceiver
 import com.example.localagent.serializer.ScreenSerializer
 import com.example.localagent.state.TaskStateManager
@@ -156,6 +158,22 @@ class LocalAgentService : AccessibilityService() {
                 child.recycle()
             }
         }
+    }
+
+    fun launchChrome(): Boolean = IntentLauncher.launchChrome(this)
+    fun launchYouTube(): Boolean = IntentLauncher.launchYouTube(this)
+    fun launchCamera(): Boolean = IntentLauncher.launchCamera(this)
+
+    fun runChromeSearchTest(query: String = "Android Accessibility"): Boolean {
+        return TestRoutines.runChromeSearchTest(this, query)
+    }
+
+    fun runCameraRecordingTest(): Boolean {
+        return TestRoutines.runCameraRecordingTest(this)
+    }
+
+    fun runYouTubePlaybackTest(query: String = "Kotlin Android Tutorial"): Boolean {
+        return TestRoutines.runYouTubePlaybackTest(this, query)
     }
 
     private fun registerKillSwitch() {
