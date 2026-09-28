@@ -28,10 +28,16 @@ import com.example.localagent.engine.DiagnosticRunner
 import com.example.localagent.intents.AppCapabilityResolver
 import com.example.localagent.intents.CapabilityDomain
 import com.example.localagent.memory.KnowledgeLedger
+import com.example.localagent.memory.MemoryRehydrationManager
 import com.example.localagent.memory.RuleLedger
+import com.example.localagent.memory.StorageManager
 import com.example.localagent.receiver.GoalDispatcher
+import com.example.localagent.safety.PermissionManager
 import com.example.localagent.voice.VoiceEngine
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 open class MainActivity : Activity() {
 
@@ -59,6 +65,7 @@ open class MainActivity : Activity() {
     private lateinit var tvOverlayBadge: TextView
     private lateinit var tvBatteryBadge: TextView
     private lateinit var tvAudioBadge: TextView
+    private lateinit var tvStorageBadge: TextView
     private lateinit var tvRamGauge: TextView
 
     private var voiceEngine: VoiceEngine? = null
@@ -66,8 +73,6 @@ open class MainActivity : Activity() {
     private var telemetryReceiver: BroadcastReceiver? = null
 
     companion object {
-        private const val PERMISSION_REQUEST_RECORD_AUDIO = 1001
-
         fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
             val expectedComponentName = "${context.packageName}/${serviceClass.name}"
             val enabledServicesSetting = Settings.Secure.getString(
@@ -274,21 +279,71 @@ open class MainActivity : Activity() {
             setPadding(16, 16, 16, 16)
         }
 
+        val memoryFooterSub = TextView(this).apply {
+            text = "Storage: /Download/LocalAgent/ (Persists across uninstalls)"
+            textSize = 10f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, 8, 0, 8)
+        }
+
+        val memoryButtonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 12)
+        }
+
+        val btnExportMemory = Button(this).apply {
+            text = "[Backup Memory]"
+            textSize = 10f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 4 }
+            setOnClickListener {
+                try {
+                    val pDir = StorageManager.getPersistentStorageDir(this@MainActivity)
+                    val rulesFile = File(pDir, "local_rules.json")
+                    if (rulesFile.exists()) {
+                        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                        val backupFile = File(pDir, "rules_backup_$ts.json")
+                        rulesFile.copyTo(backupFile, overwrite = true)
+                        appendLog("[MEMORY] Backup created: ${backupFile.name}")
+                    }
+                } catch (e: Exception) {
+                    appendLog("[MEMORY] Backup failed: ${e.message}")
+                }
+            }
+        }
+
+        val btnResyncMemory = Button(this).apply {
+            text = "[Re-Sync From Downloads]"
+            textSize = 10f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#00F0FF"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 2; marginEnd = 2 }
+            setOnClickListener {
+                renderMemoryBankCards()
+                appendLog("[MEMORY] Re-synced files from Downloads.")
+            }
+        }
+
         val btnPurgeMemory = Button(this).apply {
-            text = "[Purge Old Records (<2MB Limit)]"
-            textSize = 11f
+            text = "[Purge Ledger]"
+            textSize = 10f
             setTextColor(Color.parseColor("#FF0055"))
             background = createBorderDrawable(Color.parseColor("#FF0055"))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 12, 0, 12)
-            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
             setOnClickListener {
-                File(filesDir, "knowledge_ledger.json").delete()
-                File(filesDir, "local_rules.json").delete()
+                val pDir = StorageManager.getPersistentStorageDir(this@MainActivity)
+                File(pDir, "knowledge_ledger.json").delete()
+                File(pDir, "local_rules.json").delete()
                 appendLog("[MEMORY] Flushed neural memory ledgers.")
                 renderMemoryBankCards()
             }
         }
+
+        memoryButtonRow.addView(btnExportMemory)
+        memoryButtonRow.addView(btnResyncMemory)
+        memoryButtonRow.addView(btnPurgeMemory)
 
         llMemoryCardsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -296,7 +351,8 @@ open class MainActivity : Activity() {
         }
 
         tabMemoryView.addView(tvCapabilityLedgerCard)
-        tabMemoryView.addView(btnPurgeMemory)
+        tabMemoryView.addView(memoryFooterSub)
+        tabMemoryView.addView(memoryButtonRow)
         tabMemoryView.addView(llMemoryCardsContainer)
 
         // TAB 3: SYSTEM & VITALS
@@ -361,7 +417,7 @@ open class MainActivity : Activity() {
         permGridRow3.addView(tvBatteryBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow3.addView(btnBatterySettings)
 
-        val permGridRow4 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 16) }
+        val permGridRow4 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 8) }
         tvAudioBadge = createBadgeView("AUDIO: [REQUIRED]")
         val btnAudioSettings = Button(this).apply {
             text = "Grant Mic"
@@ -369,13 +425,25 @@ open class MainActivity : Activity() {
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
             setOnClickListener {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), PERMISSION_REQUEST_RECORD_AUDIO)
-                }
+                PermissionManager.checkAndRequestRuntimePermissions(this@MainActivity)
             }
         }
         permGridRow4.addView(tvAudioBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow4.addView(btnAudioSettings)
+
+        val permGridRow5 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 16) }
+        tvStorageBadge = createBadgeView("STORAGE: [REQUIRED]")
+        val btnStorageSettings = Button(this).apply {
+            text = "Grant Storage"
+            textSize = 10f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#334155"))
+            setOnClickListener {
+                PermissionManager.checkAndRequestRuntimePermissions(this@MainActivity)
+            }
+        }
+        permGridRow5.addView(tvStorageBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+        permGridRow5.addView(btnStorageSettings)
 
         val diagRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 8, 0, 16) }
         val btnAppAudit = Button(this).apply {
@@ -408,6 +476,7 @@ open class MainActivity : Activity() {
         tabSystemView.addView(permGridRow2)
         tabSystemView.addView(permGridRow3)
         tabSystemView.addView(permGridRow4)
+        tabSystemView.addView(permGridRow5)
         tabSystemView.addView(diagRow)
 
         rootLayout.addView(headerText)
@@ -421,12 +490,24 @@ open class MainActivity : Activity() {
 
         registerTelemetryReceiver()
         updateSystemStatus()
+
+        // Trigger Guided Permission Onboarding Batch
+        PermissionManager.checkGuidedOnboarding(this)
     }
 
     override fun onResume() {
         super.onResume()
         updateSystemStatus()
         renderMemoryBankCards()
+        PermissionManager.checkGuidedOnboarding(this)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PermissionManager.REQUEST_CODE_RUNTIME) {
+            updateSystemStatus()
+            PermissionManager.checkGuidedOnboarding(this)
+        }
     }
 
     override fun onDestroy() {
@@ -464,7 +545,8 @@ open class MainActivity : Activity() {
             val notesName = capMap[CapabilityDomain.DOMAIN_NOTES]?.appName ?: "Google Keep / Notes"
             val alarmName = capMap[CapabilityDomain.DOMAIN_CLOCK]?.appName ?: "System DeskClock"
 
-            val ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
+            val pDir = StorageManager.getPersistentStorageDir(this)
+            val ruleLedger = RuleLedger(File(pDir, "local_rules.json"))
 
             tvCapabilityLedgerCard.text = "APP CAPABILITY & ROUTINE LEDGER\n" +
                     "• Default Note App: $notesName\n" +
@@ -476,7 +558,8 @@ open class MainActivity : Activity() {
         }
 
         try {
-            val kLedger = KnowledgeLedger(File(filesDir, "knowledge_ledger.json"))
+            val pDir = StorageManager.getPersistentStorageDir(this)
+            val kLedger = KnowledgeLedger(File(pDir, "knowledge_ledger.json"))
             val entries = kLedger.getEntries()
 
             if (entries.isEmpty()) {
@@ -535,25 +618,27 @@ open class MainActivity : Activity() {
 
     private fun updateSystemStatus() {
         val isAccessEnabled = isAccessibilityServiceEnabled(this, LocalAgentService::class.java)
-        tvAccessibilityBadge.text = if (isAccessEnabled) "ACCESSIBILITY: [ENABLED]" else "ACCESSIBILITY: [REQUIRED]"
+        tvAccessibilityBadge.text = if (isAccessEnabled) "ACCESSIBILITY: [GRANTED]" else "ACCESSIBILITY: [REQUIRED]"
         tvAccessibilityBadge.background = createBadgeDrawable(if (isAccessEnabled) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
 
         val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
-        tvOverlayBadge.text = if (hasOverlay) "OVERLAY: [ENABLED]" else "OVERLAY: [REQUIRED]"
+        tvOverlayBadge.text = if (hasOverlay) "OVERLAY: [GRANTED]" else "OVERLAY: [REQUIRED]"
         tvOverlayBadge.background = createBadgeDrawable(if (hasOverlay) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
 
         val isBatteryWhitelisted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
             pm?.isIgnoringBatteryOptimizations(packageName) ?: false
         } else true
-        tvBatteryBadge.text = if (isBatteryWhitelisted) "BATTERY: [ENABLED]" else "BATTERY: [REQUIRED]"
+        tvBatteryBadge.text = if (isBatteryWhitelisted) "BATTERY: [GRANTED]" else "BATTERY: [REQUIRED]"
         tvBatteryBadge.background = createBadgeDrawable(if (isBatteryWhitelisted) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
 
-        val hasAudio = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        } else true
-        tvAudioBadge.text = if (hasAudio) "AUDIO: [ENABLED]" else "AUDIO: [REQUIRED]"
+        val hasAudio = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        tvAudioBadge.text = if (hasAudio) "AUDIO: [GRANTED]" else "AUDIO: [REQUIRED]"
         tvAudioBadge.background = createBadgeDrawable(if (hasAudio) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
+
+        val hasStorage = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        tvStorageBadge.text = if (hasStorage) "STORAGE: [GRANTED]" else "STORAGE: [REQUIRED]"
+        tvStorageBadge.background = createBadgeDrawable(if (hasStorage) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
 
         try {
             val memoryInfo = ActivityManager.MemoryInfo()

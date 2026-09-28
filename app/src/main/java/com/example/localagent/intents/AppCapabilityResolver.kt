@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.AlarmClock
+import com.example.localagent.memory.StorageManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -25,7 +26,8 @@ data class AppCapability(
 
 class AppCapabilityResolver(private val context: Context) {
 
-    private val storageFile = File(context.filesDir, "app_capabilities.json")
+    private val storageFile: File
+        get() = File(StorageManager.getPersistentStorageDir(context), "app_capabilities.json")
 
     fun scanAndMapCapabilities(): Map<CapabilityDomain, AppCapability> {
         val pm = context.packageManager

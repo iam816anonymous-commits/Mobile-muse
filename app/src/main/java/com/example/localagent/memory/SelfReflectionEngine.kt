@@ -22,7 +22,9 @@ data class OptimizationTip(
 
 class SelfReflectionEngine(private val context: Context) {
 
-    private val storageFile = File(context.filesDir, "reflection_ledger.json")
+    private val storageFile: File
+        get() = File(StorageManager.getPersistentStorageDir(context), "reflection_ledger.json")
+
     private val metricsBuffer = mutableListOf<OperationalMetric>()
 
     init {

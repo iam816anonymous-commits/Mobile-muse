@@ -25,7 +25,9 @@ import com.example.localagent.hud.FloatingHudManager
 import com.example.localagent.intents.IntentLauncher
 import com.example.localagent.memory.KnowledgeLedger
 import com.example.localagent.memory.MemoryLedger
+import com.example.localagent.memory.MemoryRehydrationManager
 import com.example.localagent.memory.RuleLedger
+import com.example.localagent.memory.StorageManager
 import com.example.localagent.network.AiBridgeClient
 import com.example.localagent.receiver.GoalDispatcher
 import com.example.localagent.routines.TestRoutines
@@ -89,9 +91,10 @@ open class LocalAgentService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
-        memoryLedger = MemoryLedger(File(filesDir, "memory_ledger.json"))
-        ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
-        knowledgeLedger = KnowledgeLedger(File(filesDir, "knowledge_ledger.json"))
+        val pDir = StorageManager.getPersistentStorageDir(this)
+        memoryLedger = MemoryLedger(File(pDir, "memory_ledger.json"))
+        ruleLedger = RuleLedger(File(pDir, "local_rules.json"))
+        knowledgeLedger = KnowledgeLedger(File(pDir, "knowledge_ledger.json"))
         gestureExecutor = GestureExecutor(this)
         voiceSynthesizer = VoiceSynthesizer(this)
         hudManager = FloatingHudManager(this) {
@@ -244,6 +247,8 @@ open class LocalAgentService : AccessibilityService() {
 
         hudManager.show()
         broadcastTelemetryLog("SYS", "LocalAgentService connected and online")
+
+        MemoryRehydrationManager.rehydrateMemory(this)
     }
 
     public override fun onKeyEvent(event: KeyEvent?): Boolean {
