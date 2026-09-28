@@ -20,6 +20,14 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <receiver
+            android:name=".safety.KillSwitchReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.localagent.ACTION_KILL_SWITCH" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

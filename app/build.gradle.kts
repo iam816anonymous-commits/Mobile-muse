@@ -17,6 +17,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -44,4 +50,5 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.mockito.core)
+    testImplementation(libs.json)
 }
