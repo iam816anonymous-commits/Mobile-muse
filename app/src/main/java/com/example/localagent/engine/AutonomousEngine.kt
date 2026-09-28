@@ -13,7 +13,8 @@ import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.MemoryGuard
 import com.example.localagent.memory.ScreenHasher
 import com.example.localagent.serializer.ScreenSerializer
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
@@ -23,14 +24,21 @@ object AutonomousEngine {
     private val fingerprintRingBuffer = ArrayDeque<String>(3)
 
     fun processCurrentScreen(service: LocalAgentService, goalText: String) {
-        // Enforce strict 20s hard execution timeout
-        runBlocking {
-            withTimeoutOrNull(20_000L) {
-                processCurrentScreenInternal(service, goalText)
-            } ?: run {
-                Log.w(TAG, "Task execution timed out (20s limit). Returning to IDLE.")
-                service.broadcastTelemetryLog("WARN", "Task execution timed out (20s limit). Returning to IDLE.")
-                service.voiceSynthesizer?.speak("Task execution timed out. Returning to standing by.")
+        service.serviceScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                withTimeoutOrNull(20_000L) {
+                    processCurrentScreenInternal(service, goalText)
+                } ?: run {
+                    Log.w(TAG, "Task execution timed out (20s limit). Returning to IDLE.")
+                    service.broadcastTelemetryLog("WARN", "Task execution timed out (20s limit). Returning to IDLE.")
+                    service.voiceSynthesizer?.speak("Task execution timed out. Returning to standing by.")
+                    service.stateManager.reset()
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Crash protection caught unhandled error in AutonomousEngine", e)
+                service.isProcessingGoal = false
+                service.broadcastTelemetryLog("CRASH_GUARD", "Handled error: ${e.message}")
+                service.voiceSynthesizer?.speak("Encountered an obstacle. Returning to standing by.")
                 service.stateManager.reset()
             }
         }
@@ -139,13 +147,24 @@ object AutonomousEngine {
                 }.onFailure { error ->
                     Log.e(TAG, "AI Bridge query failed", error)
                     StallDetector.recordFailure()
-                    service.broadcastTelemetryLog("SYS", "AI Bridge query failed: ${error.message}")
-                    val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
-                    if (StallDetector.isStalled(hasTargetIndex = false)) {
-                        val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
-                        SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
-                            service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
-                            executeActionRule(service, healedRule, service.getActiveWindowRoot())
+                    service.broadcastTelemetryLog("SYS", "AI Bridge unavailable: ${error.message}. Triggering local heuristics.")
+
+                    val rootForHeuristic = service.getActiveWindowRoot()
+                    if (rootForHeuristic != null) {
+                        try {
+                            val heuristicHandled = LocalHeuristicEngine.processLocalHeuristics(service, goalText, rootForHeuristic)
+                            if (!heuristicHandled) {
+                                val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
+                                if (StallDetector.isStalled(hasTargetIndex = false)) {
+                                    val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
+                                    SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
+                                        service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
+                                        executeActionRule(service, healedRule, service.getActiveWindowRoot())
+                                    }
+                                }
+                            }
+                        } finally {
+                            rootForHeuristic.recycle()
                         }
                     }
                 }

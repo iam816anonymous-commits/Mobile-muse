@@ -45,19 +45,19 @@ class AiBridgeClient(
         serializedScreen: String,
         goalDescription: String
     ): String {
-        val fullUrlStr = if (!apiKey.isNull_or_blank()) {
-            "$endpointUrl?key=$apiKey"
-        } else {
-            endpointUrl
+        if (apiKey.isNull_or_blank() || apiKey.equals("YOUR_API_KEY", ignoreCase = true)) {
+            throw IllegalArgumentException("API_KEY_UNSET: Cloud reasoning unavailable. Proceeding with local heuristics.")
         }
+
+        val fullUrlStr = "$endpointUrl?key=$apiKey"
 
         val url = URL(fullUrlStr)
         val connection = url.openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
+            connection.connectTimeout = 4000
+            connection.readTimeout = 4000
             connection.doOutput = true
 
             val requestBody = buildGeminiRequestBody(serializedScreen, goalDescription)
