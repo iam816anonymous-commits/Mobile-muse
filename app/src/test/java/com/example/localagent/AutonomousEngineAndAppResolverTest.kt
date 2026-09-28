@@ -2,6 +2,7 @@ package com.example.localagent
 
 import android.graphics.Rect
 import com.example.localagent.engine.AutonomousEngine
+import com.example.localagent.intents.CapabilityDomain
 import com.example.localagent.network.AiBridgeClient
 import com.example.localagent.serializer.ScreenSerializer
 import org.json.JSONObject
@@ -25,6 +26,15 @@ class AutonomousEngineAndAppResolverTest {
 
         assertTrue(serialized.contains("\"index\":0"))
         assertTrue(serialized.contains("\"type\":\"EditText\""))
+    }
+
+    @Test
+    fun testCapabilityDomains() {
+        assertEquals("DOMAIN_NOTES", CapabilityDomain.DOMAIN_NOTES.name)
+        assertEquals("DOMAIN_CLOCK", CapabilityDomain.DOMAIN_CLOCK.name)
+        assertEquals("DOMAIN_VOICE_RECORDER", CapabilityDomain.DOMAIN_VOICE_RECORDER.name)
+        assertEquals("DOMAIN_LOCAL_VIDEO", CapabilityDomain.DOMAIN_LOCAL_VIDEO.name)
+        assertEquals("DOMAIN_ONLINE_VIDEO", CapabilityDomain.DOMAIN_ONLINE_VIDEO.name)
     }
 
     @Test

@@ -25,6 +25,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.example.localagent.engine.DiagnosticRunner
+import com.example.localagent.intents.AppCapabilityResolver
+import com.example.localagent.intents.CapabilityDomain
 import com.example.localagent.memory.KnowledgeLedger
 import com.example.localagent.memory.RuleLedger
 import com.example.localagent.receiver.GoalDispatcher
@@ -50,6 +52,7 @@ open class MainActivity : Activity() {
 
     // Tab 2 UI
     private lateinit var llMemoryCardsContainer: LinearLayout
+    private lateinit var tvCapabilityLedgerCard: TextView
 
     // Tab 3 UI
     private lateinit var tvAccessibilityBadge: TextView
@@ -262,11 +265,23 @@ open class MainActivity : Activity() {
             visibility = View.GONE
         }
 
+        tvCapabilityLedgerCard = TextView(this).apply {
+            text = "APP CAPABILITY & ROUTINE LEDGER\nLoading capabilities..."
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#00F0FF"))
+            setPadding(16, 16, 16, 16)
+        }
+
         val btnPurgeMemory = Button(this).apply {
             text = "[Purge Old Records (<2MB Limit)]"
             textSize = 11f
             setTextColor(Color.parseColor("#FF0055"))
             background = createBorderDrawable(Color.parseColor("#FF0055"))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 12, 0, 12)
+            }
             setOnClickListener {
                 File(filesDir, "knowledge_ledger.json").delete()
                 File(filesDir, "local_rules.json").delete()
@@ -277,9 +292,10 @@ open class MainActivity : Activity() {
 
         llMemoryCardsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 16, 0, 0)
+            setPadding(0, 8, 0, 0)
         }
 
+        tabMemoryView.addView(tvCapabilityLedgerCard)
         tabMemoryView.addView(btnPurgeMemory)
         tabMemoryView.addView(llMemoryCardsContainer)
 
@@ -440,6 +456,25 @@ open class MainActivity : Activity() {
 
     private fun renderMemoryBankCards() {
         llMemoryCardsContainer.removeAllViews()
+
+        try {
+            val capabilityResolver = AppCapabilityResolver(this)
+            val capMap = capabilityResolver.scanAndMapCapabilities()
+
+            val notesName = capMap[CapabilityDomain.DOMAIN_NOTES]?.appName ?: "Google Keep / Notes"
+            val alarmName = capMap[CapabilityDomain.DOMAIN_CLOCK]?.appName ?: "System DeskClock"
+
+            val ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
+
+            tvCapabilityLedgerCard.text = "APP CAPABILITY & ROUTINE LEDGER\n" +
+                    "• Default Note App: $notesName\n" +
+                    "• Default Alarm Engine: $alarmName\n" +
+                    "• Default Media Players: [Online: YouTube / Offline: Gallery]\n" +
+                    "• Total Rules Cached Offline: 300 Max Buffer"
+        } catch (e: Exception) {
+            tvCapabilityLedgerCard.text = "APP CAPABILITY & ROUTINE LEDGER\nCapabilities scanning..."
+        }
+
         try {
             val kLedger = KnowledgeLedger(File(filesDir, "knowledge_ledger.json"))
             val entries = kLedger.getEntries()
