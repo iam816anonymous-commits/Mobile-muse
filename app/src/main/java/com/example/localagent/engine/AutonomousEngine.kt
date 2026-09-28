@@ -13,6 +13,8 @@ import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.MemoryGuard
 import com.example.localagent.memory.ScreenHasher
 import com.example.localagent.serializer.ScreenSerializer
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 object AutonomousEngine {
@@ -21,6 +23,30 @@ object AutonomousEngine {
     private val fingerprintRingBuffer = ArrayDeque<String>(3)
 
     fun processCurrentScreen(service: LocalAgentService, goalText: String) {
+        // Enforce 25s hard timeout
+        runBlocking {
+            withTimeoutOrNull(25_000L) {
+                processCurrentScreenInternal(service, goalText)
+            } ?: run {
+                Log.w(TAG, "Task execution timed out (25s limit). Returning to IDLE.")
+                service.broadcastTelemetryLog("WARN", "Task execution timed out (25s limit). Returning to IDLE.")
+                service.voiceSynthesizer?.speak("Task execution timed out. Returning to standing by.")
+                service.stateManager.reset()
+            }
+        }
+    }
+
+    private fun processCurrentScreenInternal(service: LocalAgentService, goalText: String) {
+        // Enforce strict step count limit <= 10
+        val currentStep = service.stateManager.getCurrentState().currentStepIndex
+        if (currentStep >= 10) {
+            Log.w(TAG, "Strict step limit reached ($currentStep >= 10). Aborting to prevent infinite loop.")
+            service.broadcastTelemetryLog("WARN", "Task step limit reached ($currentStep >= 10). Aborting to prevent infinite loop.")
+            service.voiceSynthesizer?.speak("Task step limit reached. Aborting to prevent infinite loop.")
+            service.stateManager.reset()
+            return
+        }
+
         // LMK Protection Check
         if (MemoryGuard.isLowMemoryCondition(service)) {
             service.broadcastTelemetryLog("SYS", "Low RAM <250MB threshold reached. Resetting task state to IDLE.")
@@ -101,7 +127,7 @@ object AutonomousEngine {
                         val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
                         if (StallDetector.isStalled(hasTargetIndex = false)) {
                             val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
-                            SelfHealingResolver.resolveAndHeal(service, stallCtx) { keyword, healedRule ->
+                            SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
                                 service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
                                 executeActionRule(service, healedRule, service.getActiveWindowRoot())
                             }
@@ -114,7 +140,7 @@ object AutonomousEngine {
                     val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
                     if (StallDetector.isStalled(hasTargetIndex = false)) {
                         val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
-                        SelfHealingResolver.resolveAndHeal(service, stallCtx) { keyword, healedRule ->
+                        SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
                             service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
                             executeActionRule(service, healedRule, service.getActiveWindowRoot())
                         }

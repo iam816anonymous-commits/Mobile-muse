@@ -5,6 +5,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.engine.AutonomousEngine
 import com.example.localagent.memory.ActionType
 import com.example.localagent.receiver.GoalDispatcher
+import com.example.localagent.vision.GeminiVisionBridge
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -44,7 +45,7 @@ class GoalDispatcherAndPipelineTest {
     }
 
     @Test
-    fun testGoalDispatcher_dispatchesCalculatorSkill() = runTest(testDispatcher) {
+    fun testGoalDispatcher_abortCommandHandling() = runTest(testDispatcher) {
         val mockService = mock(LocalAgentService::class.java)
         `when`(mockService.stateManager).thenReturn(com.example.localagent.state.TaskStateManager())
 
@@ -55,15 +56,15 @@ class GoalDispatcherAndPipelineTest {
 
         val intent = mock(Intent::class.java)
         `when`(intent.action).thenReturn(GoalDispatcher.ACTION_EXECUTE_GOAL)
-        `when`(intent.getStringExtra(GoalDispatcher.EXTRA_GOAL_TEXT)).thenReturn("calculate 45 * 8")
+        `when`(intent.getStringExtra(GoalDispatcher.EXTRA_GOAL_TEXT)).thenReturn("stop")
 
         dispatcher.onReceive(mockService, intent)
 
-        assertEquals("calculate 45 * 8", processedGoal)
+        assertEquals("stop", processedGoal)
     }
 
     @Test
-    fun testGoalDispatcher_dispatchesCameraSkill() = runTest(testDispatcher) {
+    fun testGoalDispatcher_unrecognizedGoalFallbackToIdle() = runTest(testDispatcher) {
         val mockService = mock(LocalAgentService::class.java)
         `when`(mockService.stateManager).thenReturn(com.example.localagent.state.TaskStateManager())
 
@@ -74,11 +75,20 @@ class GoalDispatcherAndPipelineTest {
 
         val intent = mock(Intent::class.java)
         `when`(intent.action).thenReturn(GoalDispatcher.ACTION_EXECUTE_GOAL)
-        `when`(intent.getStringExtra(GoalDispatcher.EXTRA_GOAL_TEXT)).thenReturn("take a photo with front camera")
+        `when`(intent.getStringExtra(GoalDispatcher.EXTRA_GOAL_TEXT)).thenReturn("xyz123unrecognized")
 
         dispatcher.onReceive(mockService, intent)
 
-        assertEquals("take a photo with front camera", processedGoal)
+        assertEquals("xyz123unrecognized", processedGoal)
+    }
+
+    @Test
+    fun testGeminiVisionBridge_bodyBuilding() {
+        val visionBridge = GeminiVisionBridge(apiKey = "test_key")
+        val body = visionBridge.buildVisionRequestBody("base64data", "Describe scene")
+
+        assertTrue(body.contains("base64data"))
+        assertTrue(body.contains("Describe scene"))
     }
 
     @Test

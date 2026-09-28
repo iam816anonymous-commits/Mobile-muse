@@ -11,7 +11,8 @@ import android.util.Log
 class VoiceCommandManager(
     private val context: Context,
     private val onResult: (String) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    private val onPartialResult: ((String) -> Unit)? = null
 ) {
 
     companion object {
@@ -19,8 +20,14 @@ class VoiceCommandManager(
     }
 
     private var speechRecognizer: SpeechRecognizer? = null
+    var isProcessingGoal: Boolean = false
 
     fun startListening() {
+        if (isProcessingGoal) {
+            Log.w(TAG, "Speech recognition ignored: Current task is processing")
+            return
+        }
+
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             onError("Speech recognition unavailable on device")
             return
@@ -38,6 +45,7 @@ class VoiceCommandManager(
                 override fun onError(error: Int) {
                     Log.e(TAG, "Speech recognition error code: $error")
                     onError("Speech error code: $error")
+                    isProcessingGoal = false
                     destroyRecognizer()
                 }
 
@@ -45,15 +53,24 @@ class VoiceCommandManager(
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     val text = matches?.firstOrNull() ?: ""
                     if (text.isNotBlank()) {
-                        Log.d(TAG, "Transcribed speech: '$text'")
+                        Log.d(TAG, "Transcribed speech onResults: '$text'")
+                        isProcessingGoal = true
                         onResult(text)
                     } else {
                         onError("No speech recognized")
+                        isProcessingGoal = false
                     }
                     destroyRecognizer()
                 }
 
-                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val text = matches?.firstOrNull() ?: ""
+                    if (text.isNotBlank()) {
+                        onPartialResult?.invoke(text)
+                    }
+                }
+
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
         }
@@ -67,6 +84,7 @@ class VoiceCommandManager(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start speech listener", e)
             onError(e.message ?: "Failed to start speech listener")
+            isProcessingGoal = false
             destroyRecognizer()
         }
     }
@@ -79,5 +97,9 @@ class VoiceCommandManager(
             e.printStackTrace()
         }
         speechRecognizer = null
+    }
+
+    fun resetProcessingFlag() {
+        isProcessingGoal = false
     }
 }
