@@ -16,7 +16,11 @@ import com.example.localagent.gestures.ActionExecutor
 import com.example.localagent.gestures.GestureExecutor
 import com.example.localagent.hud.FloatingHudManager
 import com.example.localagent.intents.IntentLauncher
+import com.example.localagent.memory.ActionRule
+import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.MemoryLedger
+import com.example.localagent.memory.RuleLedger
+import com.example.localagent.memory.ScreenHasher
 import com.example.localagent.network.AiBridgeClient
 import com.example.localagent.routines.TestRoutines
 import com.example.localagent.safety.KillSwitchReceiver
@@ -43,6 +47,7 @@ open class LocalAgentService : AccessibilityService() {
 
     val stateManager = TaskStateManager(maxStepsLimit = 15)
     lateinit var memoryLedger: MemoryLedger
+    lateinit var ruleLedger: RuleLedger
     var aiBridgeClient: AiBridgeClient = AiBridgeClient()
     lateinit var gestureExecutor: GestureExecutor
     lateinit var hudManager: FloatingHudManager
@@ -54,6 +59,7 @@ open class LocalAgentService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         memoryLedger = MemoryLedger(File(filesDir, "memory_ledger.json"))
+        ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
         gestureExecutor = GestureExecutor(this)
         hudManager = FloatingHudManager(this) {
             haltAndResetAgent("Instant abort triggered via floating HUD tap")
@@ -142,24 +148,28 @@ open class LocalAgentService : AccessibilityService() {
             traverseAndExtractNode(rootNode, extractedNodes)
             Log.d(TAG, "Extracted ${extractedNodes.size} nodes from active window")
 
-            val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
-            val currentGoalDesc = state.goal?.description ?: "Default Goal"
+            val packageName = rootNode.packageName?.toString()
+            val screenFingerprint = ScreenHasher.computeFingerprint(packageName, extractedNodes)
+            val userGoal = state.goal?.description ?: "Default Goal"
 
-            // Check dynamic rule cache first for offline execution
-            val cachedRule = memoryLedger.getCachedRule(serializedScreen)
-            if (cachedRule != null) {
-                Log.d(TAG, "Found cached rule for screen state. Executing offline: $cachedRule")
+            // 1. Check local rule graph for matching transition
+            val localRule = ruleLedger.getActionRule(screenFingerprint, userGoal)
+            if (localRule != null) {
+                Log.d(TAG, "Local rule graph match found for fingerprint $screenFingerprint. Executing offline.")
+                executeActionRule(localRule)
                 memoryLedger.recordStep(
                     stepIndex = stateManager.getCurrentState().currentStepIndex,
-                    action = "OFFLINE_RULE_ACTION: $cachedRule",
+                    action = "OFFLINE_RULE_GRAPH_ACTION: ${localRule.type}",
                     success = true
                 )
             } else {
-                // Query AI Bridge asynchronously if no cached rule exists
-                aiBridgeClient.sendPayloadAsync(serializedScreen, currentGoalDesc) { result ->
+                // 2. Query AI Bridge if no local rule exists
+                val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
+                aiBridgeClient.sendPayloadAsync(serializedScreen, userGoal) { result ->
                     result.onSuccess { aiResponse ->
                         Log.d(TAG, "AI Bridge response received: $aiResponse")
-                        memoryLedger.cacheRule(serializedScreen, aiResponse)
+                        val newRule = ActionRule(type = ActionType.CLICK, textPayload = aiResponse)
+                        ruleLedger.addTransition(screenFingerprint, userGoal, newRule)
                         memoryLedger.recordStep(
                             stepIndex = stateManager.getCurrentState().currentStepIndex,
                             action = "AI_BRIDGE_ACTION",
@@ -187,6 +197,29 @@ open class LocalAgentService : AccessibilityService() {
             )
         } finally {
             rootNode.recycle()
+        }
+    }
+
+    private fun executeActionRule(rule: ActionRule) {
+        when (rule.type) {
+            ActionType.CLICK -> {
+                rule.targetBounds?.let { bounds ->
+                    gestureExecutor.tap(bounds.centerX().toFloat(), bounds.centerY().toFloat())
+                }
+            }
+            ActionType.SWIPE -> {
+                rule.targetBounds?.let { bounds ->
+                    gestureExecutor.swipe(
+                        bounds.centerX().toFloat(),
+                        bounds.bottom.toFloat(),
+                        bounds.centerX().toFloat(),
+                        bounds.top.toFloat()
+                    )
+                }
+            }
+            ActionType.INPUT -> {
+                Log.d(TAG, "Executing INPUT rule payload: ${rule.textPayload}")
+            }
         }
     }
 
