@@ -3,8 +3,10 @@
 LocalAgent is an autonomous Android Accessibility Service agent targeting API levels 26–28 (Android 8/9).
 
 ## Features
-- **Dashboard Launcher Activity**: Minimal dashboard (`MainActivity`) showing Accessibility Service and Overlay permission status with direct settings navigation.
+- **Launcher Activity Controller**: Lightweight launcher (`MainActivity`) inheriting from `android.app.Activity` with programmatic UI layout.
 - **Accessibility Service**: Implements `LocalAgentService` with `canRetrieveWindowContent` and `canPerformGestures`.
+- **Content Scraping & Result Extraction**: Monitors screen text stabilization (1500ms timeout) via `ContentScraper` and logs structured output via `Log.i("LocalAgentResult", resultText)`.
+- **Broadcast Result Callbacks**: Sends system broadcast `com.localagent.GOAL_COMPLETED` with string extras `goal_text`, `status` ('SUCCESS'/'FAILURE'), and `result_data`.
 - **State Management & Circuit Breaker**: `TaskStateManager` enforces task tracking and a strict 15-action circuit breaker limit.
 - **Safety Kill Switch & Emergency Abort**:
   - Broadcast receiver (`com.example.localagent.ACTION_KILL_SWITCH`).
@@ -19,11 +21,15 @@ LocalAgent is an autonomous Android Accessibility Service agent targeting API le
 
 1. **Launch App**: Open `LocalAgent` from the Android app drawer/home screen.
 2. **Enable Accessibility Service**:
-   - Tap **Enable Accessibility Service** in the dashboard to open system settings.
+   - Tap **Open Accessibility Settings** in the controller screen.
    - Locate and enable `LocalAgent` under Installed Services.
-3. **Grant Overlay Permission**:
-   - Tap **Grant Overlay Permission** in the dashboard.
-   - Toggle **Allow display over other apps** for `LocalAgent` to enable the 32dp floating status HUD.
+
+## Real-Time Output Monitoring via ADB Logcat
+
+To view extracted answers and agent action logs in real-time:
+```bash
+adb logcat -s LocalAgentResult:I
+```
 
 ## Command-Line Automation via ADB Shell
 
@@ -40,7 +46,12 @@ adb shell am broadcast -a com.localagent.EXECUTE_GOAL --es goal_text "Search lat
 adb shell am broadcast -a com.localagent.EXECUTE_GOAL --es goal_text "Play Kotlin Android tutorial on YouTube"
 ```
 
-### 2. Emergency Kill Switch Broadcast
+### 2. Terminal One-Liner (Send Goal and Monitor Output)
+```bash
+adb shell am broadcast -a com.localagent.EXECUTE_GOAL --es goal_text "Search latest space news on Chrome" && adb logcat -s LocalAgentResult:I
+```
+
+### 3. Emergency Kill Switch Broadcast
 ```bash
 adb shell am broadcast -a com.example.localagent.ACTION_KILL_SWITCH
 ```

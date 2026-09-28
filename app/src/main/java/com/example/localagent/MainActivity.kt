@@ -1,89 +1,47 @@
 package com.example.localagent
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.TextUtils
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 
-open class MainActivity : AppCompatActivity() {
-
-    private lateinit var tvAccessibilityStatus: TextView
-    private lateinit var tvOverlayStatus: TextView
-    private lateinit var btnEnableAccessibility: Button
-    private lateinit var btnGrantOverlay: Button
-    private lateinit var tvAdbCommands: TextView
+open class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        tvAccessibilityStatus = findViewById(R.id.tvAccessibilityStatus)
-        tvOverlayStatus = findViewById(R.id.tvOverlayStatus)
-        btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
-        btnGrantOverlay = findViewById(R.id.btnGrantOverlay)
-        tvAdbCommands = findViewById(R.id.tvAdbCommands)
-
-        btnEnableAccessibility.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 48, 48, 48)
         }
 
-        btnGrantOverlay.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-                startActivity(intent)
+        val titleText = TextView(this).apply {
+            text = "LocalAgent Controller"
+            textSize = 22f
+        }
+
+        val statusText = TextView(this).apply {
+            text = "Target API: 26-28 (Android 8/9)\nStatus: Ready for ADB Goal Broadcasts"
+            setPadding(0, 24, 0, 48)
+        }
+
+        val enableServiceBtn = Button(this).apply {
+            text = "Open Accessibility Settings"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
         }
 
-        setupAdbInfoText()
-    }
+        layout.addView(titleText)
+        layout.addView(statusText)
+        layout.addView(enableServiceBtn)
 
-    override fun onResume() {
-        super.onResume()
-        updateStatus()
-    }
-
-    fun updateStatus() {
-        val isAccessibilityEnabled = isAccessibilityServiceEnabled(this, LocalAgentService::class.java)
-        tvAccessibilityStatus.text = if (isAccessibilityEnabled) {
-            "Accessibility Service: ENABLED"
-        } else {
-            "Accessibility Service: DISABLED"
-        }
-
-        val hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(this)
-        } else {
-            true
-        }
-
-        tvOverlayStatus.text = if (hasOverlayPermission) {
-            "Overlay Permission: GRANTED"
-        } else {
-            "Overlay Permission: MISSING"
-        }
-    }
-
-    private fun setupAdbInfoText() {
-        val infoText = StringBuilder().apply {
-            append("OS: Android ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n\n")
-            append("--- Quick ADB Test Commands ---\n\n")
-            append("# Execute Gemini Goal:\n")
-            append("adb shell am broadcast -a com.localagent.EXECUTE_GOAL --es goal_text \"Ask Gemini about quantum computing\"\n\n")
-            append("# Execute Chrome Search Goal:\n")
-            append("adb shell am broadcast -a com.localagent.EXECUTE_GOAL --es goal_text \"Search latest tech news on Chrome\"\n\n")
-            append("# Emergency Kill Switch:\n")
-            append("adb shell am broadcast -a com.example.localagent.ACTION_KILL_SWITCH\n")
-        }.toString()
-
-        tvAdbCommands.text = infoText
+        setContentView(layout)
     }
 
     companion object {

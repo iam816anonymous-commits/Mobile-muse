@@ -3,6 +3,7 @@ package com.example.localagent
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentCallbacks2
+import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Rect
 import android.os.Build
@@ -44,6 +45,11 @@ open class LocalAgentService : AccessibilityService() {
 
     companion object {
         private const val TAG = "LocalAgentService"
+        const val ACTION_GOAL_COMPLETED = "com.localagent.GOAL_COMPLETED"
+        const val EXTRA_GOAL_TEXT = "goal_text"
+        const val EXTRA_STATUS = "status"
+        const val EXTRA_RESULT_DATA = "result_data"
+
         const val MAX_TRAVERSAL_DEPTH = 7
         private const val DOUBLE_PRESS_TIMEOUT_MS = 500L
     }
@@ -85,6 +91,16 @@ open class LocalAgentService : AccessibilityService() {
         unregisterGoalDispatcher()
         serviceScope.cancel()
         backgroundExecutor.shutdown()
+    }
+
+    fun broadcastGoalCompleted(goalText: String, status: String, resultData: String) {
+        val intent = Intent(ACTION_GOAL_COMPLETED).apply {
+            putExtra(EXTRA_GOAL_TEXT, goalText)
+            putExtra(EXTRA_STATUS, status)
+            putExtra(EXTRA_RESULT_DATA, resultData)
+        }
+        sendBroadcast(intent)
+        Log.d(TAG, "Broadcasted GOAL_COMPLETED: status=$status, result=$resultData")
     }
 
     override fun onTrimMemory(level: Int) {
@@ -146,6 +162,11 @@ open class LocalAgentService : AccessibilityService() {
                 action = "ACCESSIBILITY_EVENT_PROCESSING",
                 success = false,
                 failureCode = "CIRCUIT_BREAKER_STEP_LIMIT_EXCEEDED"
+            )
+            broadcastGoalCompleted(
+                goalText = state.goal?.description ?: "",
+                status = "FAILURE",
+                resultData = "CIRCUIT_BREAKER_STEP_LIMIT_EXCEEDED"
             )
             return
         }
@@ -342,6 +363,7 @@ open class LocalAgentService : AccessibilityService() {
 
     fun haltAndResetAgent(reason: String) {
         Log.w(TAG, "Halting and resetting agent: $reason")
+        val currentGoal = stateManager.getCurrentState().goal?.description ?: ""
         stateManager.haltTask(reason)
         memoryLedger.recordStep(
             stepIndex = stateManager.getCurrentState().currentStepIndex,
@@ -349,6 +371,7 @@ open class LocalAgentService : AccessibilityService() {
             success = false,
             failureCode = reason
         )
+        broadcastGoalCompleted(currentGoal, "FAILURE", reason)
         stateManager.reset()
     }
 }
