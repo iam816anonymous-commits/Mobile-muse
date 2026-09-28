@@ -31,6 +31,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 data class NodeData(
@@ -46,9 +49,11 @@ open class LocalAgentService : AccessibilityService() {
     companion object {
         private const val TAG = "LocalAgentService"
         const val ACTION_GOAL_COMPLETED = "com.localagent.GOAL_COMPLETED"
+        const val ACTION_TELEMETRY_LOG = "com.localagent.TELEMETRY_LOG"
         const val EXTRA_GOAL_TEXT = "goal_text"
         const val EXTRA_STATUS = "status"
         const val EXTRA_RESULT_DATA = "result_data"
+        const val EXTRA_LOG_ENTRY = "log_entry"
 
         const val MAX_TRAVERSAL_DEPTH = 7
         private const val DOUBLE_PRESS_TIMEOUT_MS = 500L
@@ -93,6 +98,16 @@ open class LocalAgentService : AccessibilityService() {
         backgroundExecutor.shutdown()
     }
 
+    fun broadcastTelemetryLog(typeTag: String, message: String) {
+        val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+        val entry = "[$typeTag] $timestamp - $message"
+        val intent = Intent(ACTION_TELEMETRY_LOG).apply {
+            putExtra(EXTRA_LOG_ENTRY, entry)
+        }
+        sendBroadcast(intent)
+        Log.d(TAG, "Telemetry Log: $entry")
+    }
+
     fun broadcastGoalCompleted(goalText: String, status: String, resultData: String) {
         val intent = Intent(ACTION_GOAL_COMPLETED).apply {
             putExtra(EXTRA_GOAL_TEXT, goalText)
@@ -100,6 +115,7 @@ open class LocalAgentService : AccessibilityService() {
             putExtra(EXTRA_RESULT_DATA, resultData)
         }
         sendBroadcast(intent)
+        broadcastTelemetryLog("EXTRACT", "Goal Completed [$status]: $resultData")
         Log.d(TAG, "Broadcasted GOAL_COMPLETED: status=$status, result=$resultData")
     }
 
@@ -112,6 +128,7 @@ open class LocalAgentService : AccessibilityService() {
         ) {
             Log.w(TAG, "Memory pressure detected. Flushing rule cache and clearing queues.")
             memoryLedger.clearRuleCache()
+            broadcastTelemetryLog("SYS", "Memory pressure trim triggered")
             System.gc()
         }
     }
@@ -127,6 +144,7 @@ open class LocalAgentService : AccessibilityService() {
         serviceInfo = info
 
         hudManager.show()
+        broadcastTelemetryLog("SYS", "LocalAgentService connected and online")
     }
 
     public override fun onKeyEvent(event: KeyEvent?): Boolean {
@@ -178,6 +196,7 @@ open class LocalAgentService : AccessibilityService() {
     override fun onInterrupt() {
         Log.d(TAG, "LocalAgentService interrupted")
         stateManager.haltTask("Service interrupted")
+        broadcastTelemetryLog("SYS", "Service interrupted")
     }
 
     fun traverseAndExtractNode(
@@ -372,6 +391,7 @@ open class LocalAgentService : AccessibilityService() {
             failureCode = reason
         )
         broadcastGoalCompleted(currentGoal, "FAILURE", reason)
+        broadcastTelemetryLog("SYS", "ABORT EXECUTED: $reason")
         stateManager.reset()
     }
 }

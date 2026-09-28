@@ -23,11 +23,13 @@ object AutonomousEngine {
 
             val packageName = rootNode.packageName?.toString()
             val screenFingerprint = ScreenHasher.computeFingerprint(packageName, extractedNodes)
+            service.broadcastTelemetryLog("SYS", "Screen Fingerprint computed: #$screenFingerprint")
 
             // 1. Check local rule graph
             val cachedRule = service.ruleLedger.getActionRule(screenFingerprint, goalText)
             if (cachedRule != null) {
                 Log.d(TAG, "Offline rule graph hit for $screenFingerprint. Executing cached action: ${cachedRule.type}")
+                service.broadcastTelemetryLog("CACHE", "Offline match found -> Replaying rule ${cachedRule.type}")
                 executeActionRule(service, cachedRule, rootNode)
                 service.memoryLedger.recordStep(
                     stepIndex = service.stateManager.getCurrentState().currentStepIndex,
@@ -39,9 +41,11 @@ object AutonomousEngine {
 
             // 2. Query AI Bridge if no local rule exists
             val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
+            service.broadcastTelemetryLog("SYS", "Querying AI Bridge for unknown screen state...")
             service.aiBridgeClient.sendPayloadAsync(serializedScreen, goalText) { result ->
                 result.onSuccess { aiJsonResponse ->
                     Log.d(TAG, "AI Response: $aiJsonResponse")
+                    service.broadcastTelemetryLog("EXTRACT", "AI Bridge response received")
                     val parsedRule = parseAiActionResponse(aiJsonResponse)
                     if (parsedRule != null) {
                         service.ruleLedger.addTransition(screenFingerprint, goalText, parsedRule)
@@ -57,6 +61,7 @@ object AutonomousEngine {
                     }
                 }.onFailure { error ->
                     Log.e(TAG, "AI Bridge query failed", error)
+                    service.broadcastTelemetryLog("SYS", "AI Bridge query failed: ${error.message}")
                     service.memoryLedger.recordStep(
                         stepIndex = service.stateManager.getCurrentState().currentStepIndex,
                         action = "AI_QUERY_FAILED",
@@ -109,7 +114,9 @@ object AutonomousEngine {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, payload)
                         }
                         val success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-                        if (!success) {
+                        if (success) {
+                            service.broadcastTelemetryLog("ACT", "Injected text via ACTION_SET_TEXT: '$payload'")
+                        } else {
                             service.performClickWithFallback(targetNode)
                         }
 
@@ -119,6 +126,7 @@ object AutonomousEngine {
                             if (sendNode != null) {
                                 try {
                                     service.performClickWithFallback(sendNode)
+                                    service.broadcastTelemetryLog("ACT", "Triggered send/submit button action")
                                 } finally {
                                     sendNode.recycle()
                                 }
@@ -136,6 +144,7 @@ object AutonomousEngine {
                     if (matchingNode != null) {
                         try {
                             service.performClickWithFallback(matchingNode)
+                            service.broadcastTelemetryLog("ACT", "Dispatched Click/Fallback for target '$targetText'")
                         } finally {
                             matchingNode.recycle()
                         }
@@ -150,13 +159,16 @@ object AutonomousEngine {
                         bounds.centerX().toFloat(),
                         bounds.top.toFloat()
                     )
+                    service.broadcastTelemetryLog("ACT", "Dispatched Swipe gesture at bounds ${bounds.toShortString()}")
                 }
             }
             ActionType.EXTRACT_RESULT -> {
                 Log.d(TAG, "Result extracted: ${rule.textPayload}")
+                service.broadcastTelemetryLog("EXTRACT", "Result captured: '${rule.textPayload}'")
             }
             ActionType.TERMINATE -> {
                 service.stateManager.completeTask()
+                service.broadcastTelemetryLog("SYS", "Goal termination executed")
             }
         }
     }
