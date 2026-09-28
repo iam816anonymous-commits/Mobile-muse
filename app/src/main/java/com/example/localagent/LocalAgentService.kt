@@ -5,9 +5,13 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.IntentFilter
 import android.graphics.Rect
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.localagent.gestures.ActionExecutor
+import com.example.localagent.gestures.GestureExecutor
 import com.example.localagent.intents.IntentLauncher
 import com.example.localagent.memory.MemoryLedger
 import com.example.localagent.network.AiBridgeClient
@@ -16,6 +20,7 @@ import com.example.localagent.safety.KillSwitchReceiver
 import com.example.localagent.serializer.ScreenSerializer
 import com.example.localagent.state.TaskStateManager
 import java.io.File
+import java.util.concurrent.Executors
 
 data class NodeData(
     val text: String?,
@@ -24,7 +29,7 @@ data class NodeData(
     val boundsInScreen: Rect
 )
 
-class LocalAgentService : AccessibilityService() {
+open class LocalAgentService : AccessibilityService() {
 
     companion object {
         private const val TAG = "LocalAgentService"
@@ -33,17 +38,22 @@ class LocalAgentService : AccessibilityService() {
     val stateManager = TaskStateManager(maxStepsLimit = 15)
     lateinit var memoryLedger: MemoryLedger
     var aiBridgeClient: AiBridgeClient = AiBridgeClient()
+    lateinit var gestureExecutor: GestureExecutor
     private var killSwitchReceiver: KillSwitchReceiver? = null
+    private val backgroundExecutor = Executors.newSingleThreadScheduledExecutor()
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     override fun onCreate() {
         super.onCreate()
         memoryLedger = MemoryLedger(File(filesDir, "memory_ledger.json"))
+        gestureExecutor = GestureExecutor(this)
         registerKillSwitch()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterKillSwitch()
+        backgroundExecutor.shutdown()
     }
 
     override fun onServiceConnected() {
@@ -158,6 +168,78 @@ class LocalAgentService : AccessibilityService() {
                 child.recycle()
             }
         }
+    }
+
+    fun performClickWithFallback(node: AccessibilityNodeInfo): Boolean {
+        return ActionExecutor.performClickWithFallback(node, gestureExecutor)
+    }
+
+    fun waitForNodeOrTimeout(
+        predicate: (AccessibilityNodeInfo) -> Boolean,
+        timeoutMs: Long,
+        callback: (AccessibilityNodeInfo?) -> Unit
+    ) {
+        val startTime = System.currentTimeMillis()
+        val pollInterval = 200L
+
+        fun dispatchResult(result: AccessibilityNodeInfo?) {
+            val mainLooper = try { Looper.getMainLooper() } catch (e: Exception) { null }
+            val myLooper = try { Looper.myLooper() } catch (e: Exception) { null }
+
+            if (mainLooper == null || myLooper == mainLooper) {
+                callback(result)
+            } else {
+                mainHandler.post { callback(result) }
+            }
+        }
+
+        fun poll() {
+            if (System.currentTimeMillis() - startTime >= timeoutMs) {
+                dispatchResult(null)
+                return
+            }
+
+            val root = getActiveWindowRoot()
+            if (root != null) {
+                val matched = findNodeMatching(root, predicate)
+                if (matched != null) {
+                    root.recycle()
+                    dispatchResult(matched)
+                    return
+                }
+                root.recycle()
+            }
+
+            backgroundExecutor.schedule({ poll() }, pollInterval, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+
+        backgroundExecutor.execute { poll() }
+    }
+
+    open fun getActiveWindowRoot(): AccessibilityNodeInfo? {
+        return rootInActiveWindow
+    }
+
+    private fun findNodeMatching(
+        node: AccessibilityNodeInfo,
+        predicate: (AccessibilityNodeInfo) -> Boolean
+    ): AccessibilityNodeInfo? {
+        if (predicate(node)) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                val match = findNodeMatching(child, predicate)
+                if (match != null) {
+                    return match
+                }
+            } finally {
+                child.recycle()
+            }
+        }
+        return null
     }
 
     fun launchChrome(): Boolean = IntentLauncher.launchChrome(this)
