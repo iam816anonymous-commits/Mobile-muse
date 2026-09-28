@@ -75,6 +75,12 @@ class MemoryLedger(private val storageFile: File? = null) {
     }
 
     @Synchronized
+    fun clearRuleCache() {
+        ruleCache.clear()
+        saveToFile()
+    }
+
+    @Synchronized
     fun clear() {
         entries.clear()
         ruleCache.clear()

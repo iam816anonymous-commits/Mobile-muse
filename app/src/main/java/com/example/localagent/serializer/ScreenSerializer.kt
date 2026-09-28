@@ -9,6 +9,11 @@ object ScreenSerializer {
     fun serializeScreen(nodes: List<NodeData>): String {
         val jsonArray = JSONArray()
         for (node in nodes) {
+            // Filter out intermediate container nodes that contain no text, description, or actions
+            if (node.text.isNull_or_blank() && node.contentDescription.isNull_or_blank() && !node.hasActions) {
+                continue
+            }
+
             val jsonObject = JSONObject()
             if (!node.text.isNull_or_blank()) {
                 jsonObject.put("text", node.text)

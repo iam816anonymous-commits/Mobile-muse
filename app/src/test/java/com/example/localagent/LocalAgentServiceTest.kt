@@ -17,6 +17,7 @@ class LocalAgentServiceTest {
         val service = LocalAgentService()
         val mockNode = mock(AccessibilityNodeInfo::class.java)
 
+        `when`(mockNode.isVisibleToUser).thenReturn(true)
         `when`(mockNode.text).thenReturn("Click Me")
         `when`(mockNode.contentDescription).thenReturn("Button Description")
         `when`(mockNode.className).thenReturn("android.widget.Button")
@@ -41,9 +42,11 @@ class LocalAgentServiceTest {
         val rootNode = mock(AccessibilityNodeInfo::class.java)
         val childNode = mock(AccessibilityNodeInfo::class.java)
 
+        `when`(rootNode.isVisibleToUser).thenReturn(true)
         `when`(rootNode.childCount).thenReturn(1)
         `when`(rootNode.getChild(0)).thenReturn(childNode)
 
+        `when`(childNode.isVisibleToUser).thenReturn(true)
         `when`(childNode.text).thenReturn("Child Text")
         `when`(childNode.childCount).thenReturn(0)
 

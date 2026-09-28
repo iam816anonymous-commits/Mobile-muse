@@ -2,6 +2,7 @@ package com.example.localagent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentCallbacks2
 import android.content.IntentFilter
 import android.graphics.Rect
 import android.os.Build
@@ -26,13 +27,15 @@ data class NodeData(
     val text: String?,
     val contentDescription: String?,
     val className: String?,
-    val boundsInScreen: Rect
+    val boundsInScreen: Rect,
+    val hasActions: Boolean = false
 )
 
 open class LocalAgentService : AccessibilityService() {
 
     companion object {
         private const val TAG = "LocalAgentService"
+        const val MAX_TRAVERSAL_DEPTH = 7
     }
 
     val stateManager = TaskStateManager(maxStepsLimit = 15)
@@ -54,6 +57,19 @@ open class LocalAgentService : AccessibilityService() {
         super.onDestroy()
         unregisterKillSwitch()
         backgroundExecutor.shutdown()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        Log.w(TAG, "onTrimMemory level: $level")
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE ||
+            level == ComponentCallbacks2.TRIM_MEMORY_COMPLETE
+        ) {
+            Log.w(TAG, "Memory pressure detected. Flushing rule cache and clearing queues.")
+            memoryLedger.clearRuleCache()
+            System.gc()
+        }
     }
 
     override fun onServiceConnected() {
@@ -145,25 +161,40 @@ open class LocalAgentService : AccessibilityService() {
         stateManager.haltTask("Service interrupted")
     }
 
-    fun traverseAndExtractNode(node: AccessibilityNodeInfo?, result: MutableList<NodeData>) {
+    fun traverseAndExtractNode(
+        node: AccessibilityNodeInfo?,
+        result: MutableList<NodeData>,
+        currentDepth: Int = 0
+    ) {
         if (node == null) return
+
+        // Filter out nodes not visible to user or beyond traversal depth cap (7 levels)
+        if (!node.isVisibleToUser || currentDepth >= MAX_TRAVERSAL_DEPTH) {
+            return
+        }
 
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
 
+        val textStr = node.text?.toString()
+        val descStr = node.contentDescription?.toString()
+        val classStr = node.className?.toString()
+        val hasActions = node.actionList.isNotEmpty() || node.isClickable
+
         result.add(
             NodeData(
-                text = node.text?.toString(),
-                contentDescription = node.contentDescription?.toString(),
-                className = node.className?.toString(),
-                boundsInScreen = bounds
+                text = textStr,
+                contentDescription = descStr,
+                className = classStr,
+                boundsInScreen = bounds,
+                hasActions = hasActions
             )
         )
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                traverseAndExtractNode(child, result)
+                traverseAndExtractNode(child, result, currentDepth + 1)
             } finally {
                 child.recycle()
             }
@@ -222,8 +253,13 @@ open class LocalAgentService : AccessibilityService() {
 
     private fun findNodeMatching(
         node: AccessibilityNodeInfo,
-        predicate: (AccessibilityNodeInfo) -> Boolean
+        predicate: (AccessibilityNodeInfo) -> Boolean,
+        depth: Int = 0
     ): AccessibilityNodeInfo? {
+        if (!node.isVisibleToUser || depth >= MAX_TRAVERSAL_DEPTH) {
+            return null
+        }
+
         if (predicate(node)) {
             return AccessibilityNodeInfo.obtain(node)
         }
@@ -231,7 +267,7 @@ open class LocalAgentService : AccessibilityService() {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                val match = findNodeMatching(child, predicate)
+                val match = findNodeMatching(child, predicate, depth + 1)
                 if (match != null) {
                     return match
                 }
