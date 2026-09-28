@@ -27,6 +27,7 @@ import com.example.localagent.engine.DiagnosticRunner
 import com.example.localagent.inventory.AppInventoryManager
 import com.example.localagent.memory.KnowledgeLedger
 import com.example.localagent.memory.RuleLedger
+import com.example.localagent.memory.SelfReflectionEngine
 import com.example.localagent.receiver.GoalDispatcher
 import com.example.localagent.voice.VoiceCommandManager
 import com.example.localagent.voice.VoiceEngine
@@ -47,7 +48,10 @@ open class MainActivity : Activity() {
     private lateinit var tvTerminalLog: TextView
     private lateinit var svTerminal: ScrollView
 
+    private lateinit var llAdviceContainer: LinearLayout
+
     private var voiceEngine: VoiceEngine? = null
+    private var reflectionEngine: SelfReflectionEngine? = null
     private val telemetryLogs = StringBuilder()
     private var telemetryReceiver: BroadcastReceiver? = null
 
@@ -78,6 +82,7 @@ open class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         voiceEngine = VoiceEngine(this)
+        reflectionEngine = SelfReflectionEngine(this)
 
         val mainScrollView = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#0A0E17"))
@@ -98,6 +103,21 @@ open class MainActivity : Activity() {
             setTextColor(Color.parseColor("#00F0FF"))
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, 0, 0, 16)
+        }
+
+        // Jarvis Optimization Directives Card
+        val adviceCardTitle = TextView(this).apply {
+            text = "JARVIS OPTIMIZATION DIRECTIVES"
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#00F0FF"))
+            setPadding(0, 8, 0, 4)
+        }
+
+        llAdviceContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = createBorderDrawable(Color.parseColor("#00F0FF"))
+            setPadding(16, 16, 16, 16)
         }
 
         // Section A: System Clearance & Permission Manager
@@ -431,6 +451,8 @@ open class MainActivity : Activity() {
         }
 
         rootLayout.addView(headerText)
+        rootLayout.addView(adviceCardTitle)
+        rootLayout.addView(llAdviceContainer)
         rootLayout.addView(permTitle)
         rootLayout.addView(permGridRow1)
         rootLayout.addView(permGridRow2)
@@ -448,17 +470,67 @@ open class MainActivity : Activity() {
         setContentView(mainScrollView)
 
         registerTelemetryReceiver()
+        updateOptimizationAdvice()
     }
 
     override fun onResume() {
         super.onResume()
         updateDashboardStatus()
+        updateOptimizationAdvice()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         voiceEngine?.shutdown()
         unregisterTelemetryReceiver()
+    }
+
+    private fun updateOptimizationAdvice() {
+        llAdviceContainer.removeAllViews()
+        val tips = reflectionEngine?.generateSystemAdvice() ?: emptyList()
+
+        if (tips.isNotEmpty()) {
+            val firstTip = tips.first()
+            voiceEngine?.speak("System directive: ${firstTip.description}")
+        }
+
+        tips.forEach { tip ->
+            val itemLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 0, 0, 12)
+            }
+            val titleView = TextView(this).apply {
+                text = "• ${tip.title}"
+                textSize = 11f
+                typeface = Typeface.MONOSPACE
+                setTextColor(Color.parseColor("#00F0FF"))
+            }
+            val descView = TextView(this).apply {
+                text = tip.description
+                textSize = 10f
+                typeface = Typeface.MONOSPACE
+                setTextColor(Color.parseColor("#94A3B8"))
+            }
+            itemLayout.addView(titleView)
+            itemLayout.addView(descView)
+
+            if (tip.shortcutAction == "BATTERY_SETTINGS") {
+                val btnFix = Button(this).apply {
+                    text = "Fix Battery Settings"
+                    textSize = 10f
+                    setTextColor(Color.parseColor("#00F0FF"))
+                    background = createBorderDrawable(Color.parseColor("#00F0FF"))
+                    setOnClickListener {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    }
+                }
+                itemLayout.addView(btnFix)
+            }
+
+            llAdviceContainer.addView(itemLayout)
+        }
     }
 
     private fun createBadgeView(defaultText: String): TextView {
