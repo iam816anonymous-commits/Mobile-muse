@@ -9,10 +9,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.gestures.ActionExecutor
 import com.example.localagent.gestures.GestureExecutor
+import com.example.localagent.hud.FloatingHudManager
 import com.example.localagent.intents.IntentLauncher
 import com.example.localagent.memory.MemoryLedger
 import com.example.localagent.network.AiBridgeClient
@@ -36,25 +38,37 @@ open class LocalAgentService : AccessibilityService() {
     companion object {
         private const val TAG = "LocalAgentService"
         const val MAX_TRAVERSAL_DEPTH = 7
+        private const val DOUBLE_PRESS_TIMEOUT_MS = 500L
     }
 
     val stateManager = TaskStateManager(maxStepsLimit = 15)
     lateinit var memoryLedger: MemoryLedger
     var aiBridgeClient: AiBridgeClient = AiBridgeClient()
     lateinit var gestureExecutor: GestureExecutor
+    lateinit var hudManager: FloatingHudManager
     private var killSwitchReceiver: KillSwitchReceiver? = null
     private val backgroundExecutor = Executors.newSingleThreadScheduledExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+    private var lastVolumeDownTime: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
         memoryLedger = MemoryLedger(File(filesDir, "memory_ledger.json"))
         gestureExecutor = GestureExecutor(this)
+        hudManager = FloatingHudManager(this) {
+            haltAndResetAgent("Instant abort triggered via floating HUD tap")
+        }
+
+        stateManager.setListener { state ->
+            hudManager.updateStatus(state.status)
+        }
+
         registerKillSwitch()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        hudManager.hide()
         unregisterKillSwitch()
         backgroundExecutor.shutdown()
     }
@@ -79,7 +93,27 @@ open class LocalAgentService : AccessibilityService() {
         info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.notificationTimeout = 100
+        info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
         serviceInfo = info
+
+        hudManager.show()
+    }
+
+    public override fun onKeyEvent(event: KeyEvent?): Boolean {
+        if (event == null) return super.onKeyEvent(event)
+
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.action == KeyEvent.ACTION_DOWN) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastVolumeDownTime <= DOUBLE_PRESS_TIMEOUT_MS) {
+                Log.w(TAG, "Volume Down double-pressed within ${DOUBLE_PRESS_TIMEOUT_MS}ms. Instantly aborting agent.")
+                haltAndResetAgent("Instant abort triggered via Volume Down double-press")
+                lastVolumeDownTime = 0L
+                return true
+            } else {
+                lastVolumeDownTime = currentTime
+            }
+        }
+        return super.onKeyEvent(event)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
