@@ -12,7 +12,6 @@ import com.example.localagent.memory.ActionRule
 import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.MemoryGuard
 import com.example.localagent.memory.ScreenHasher
-import com.example.localagent.network.AgentAction
 import com.example.localagent.serializer.ScreenSerializer
 import org.json.JSONObject
 
@@ -43,7 +42,7 @@ object AutonomousEngine {
             val extractedNodes = mutableListOf<NodeData>()
             service.traverseAndExtractNode(rootNode, extractedNodes)
 
-            val packageName = rootNode.packageName?.toString()
+            val packageName = rootNode.packageName?.toString() ?: "unknown"
             val screenFingerprint = ScreenHasher.computeFingerprint(packageName, extractedNodes)
             service.broadcastTelemetryLog("SYS", "Screen Fingerprint computed: #$screenFingerprint")
 
@@ -68,6 +67,7 @@ object AutonomousEngine {
                 Log.d(TAG, "Offline rule graph hit for $screenFingerprint. Executing cached action: ${cachedRule.type}")
                 service.broadcastTelemetryLog("CACHE", "Offline match found -> Replaying rule ${cachedRule.type}")
                 executeActionRule(service, cachedRule, rootNode)
+                StallDetector.reset()
                 service.memoryLedger.recordStep(
                     stepIndex = service.stateManager.getCurrentState().currentStepIndex,
                     action = "OFFLINE_RULE_ACTION: ${cachedRule.type}",
@@ -85,6 +85,7 @@ object AutonomousEngine {
                     service.broadcastTelemetryLog("EXTRACT", "AI Bridge response received")
                     val parsedRule = parseAiActionResponse(aiJsonResponse)
                     if (parsedRule != null) {
+                        StallDetector.reset()
                         service.ruleLedger.addTransition(screenFingerprint, goalText, parsedRule)
                         executeActionRule(service, parsedRule, service.getActiveWindowRoot())
                         service.memoryLedger.recordStep(
@@ -95,16 +96,29 @@ object AutonomousEngine {
                         if (parsedRule.type == ActionType.TERMINATE) {
                             service.stateManager.completeTask()
                         }
+                    } else {
+                        StallDetector.recordFailure()
+                        val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
+                        if (StallDetector.isStalled(hasTargetIndex = false)) {
+                            val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
+                            SelfHealingResolver.resolveAndHeal(service, stallCtx) { keyword, healedRule ->
+                                service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
+                                executeActionRule(service, healedRule, service.getActiveWindowRoot())
+                            }
+                        }
                     }
                 }.onFailure { error ->
                     Log.e(TAG, "AI Bridge query failed", error)
+                    StallDetector.recordFailure()
                     service.broadcastTelemetryLog("SYS", "AI Bridge query failed: ${error.message}")
-                    service.memoryLedger.recordStep(
-                        stepIndex = service.stateManager.getCurrentState().currentStepIndex,
-                        action = "AI_QUERY_FAILED",
-                        success = false,
-                        failureCode = error.message
-                    )
+                    val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
+                    if (StallDetector.isStalled(hasTargetIndex = false)) {
+                        val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
+                        SelfHealingResolver.resolveAndHeal(service, stallCtx) { keyword, healedRule ->
+                            service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
+                            executeActionRule(service, healedRule, service.getActiveWindowRoot())
+                        }
+                    }
                 }
             }
 

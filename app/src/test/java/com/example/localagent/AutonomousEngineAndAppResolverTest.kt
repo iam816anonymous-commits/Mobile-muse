@@ -2,10 +2,12 @@ package com.example.localagent
 
 import android.graphics.Rect
 import com.example.localagent.engine.AutonomousEngine
+import com.example.localagent.engine.QueryFormulator
+import com.example.localagent.engine.SelfHealingResolver
+import com.example.localagent.engine.StallDetector
 import com.example.localagent.intents.CapabilityDomain
 import com.example.localagent.network.AiBridgeClient
 import com.example.localagent.serializer.ScreenSerializer
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -26,6 +28,29 @@ class AutonomousEngineAndAppResolverTest {
 
         assertTrue(serialized.contains("\"index\":0"))
         assertTrue(serialized.contains("\"type\":\"EditText\""))
+    }
+
+    @Test
+    fun testStallDetectorAndQueryFormulator() {
+        StallDetector.reset()
+        StallDetector.recordFailure()
+        StallDetector.recordFailure()
+
+        assertTrue(StallDetector.isStalled(hasTargetIndex = true))
+
+        val ctx = StallDetector.buildContext("com.google.android.keep", "Record memo", listOf("Record", "Settings"))
+        val query = QueryFormulator.formulateQuery(ctx)
+
+        assertTrue(query.contains("How to Record memo in Keep Android"))
+    }
+
+    @Test
+    fun testSelfHealingResolver_parseResponse() {
+        val json = """{"target_keyword": "More options", "action": "CLICK"}"""
+        val (keyword, rule) = SelfHealingResolver.parseHealingResponse(json)
+
+        assertEquals("More options", keyword)
+        assertEquals("More options", rule.textPayload)
     }
 
     @Test
