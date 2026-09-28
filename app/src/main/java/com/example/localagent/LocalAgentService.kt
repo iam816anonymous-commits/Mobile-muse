@@ -18,6 +18,7 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.engine.AutonomousEngine
+import com.example.localagent.engine.DiagnosticRunner
 import com.example.localagent.gestures.ActionExecutor
 import com.example.localagent.gestures.GestureExecutor
 import com.example.localagent.hud.FloatingHudManager
@@ -462,7 +463,11 @@ open class LocalAgentService : AccessibilityService() {
     private fun registerGoalDispatcher() {
         if (goalDispatcher == null) {
             goalDispatcher = GoalDispatcher(this, serviceScope)
-            val filter = IntentFilter(GoalDispatcher.ACTION_EXECUTE_GOAL)
+            val filter = IntentFilter().apply {
+                addAction(GoalDispatcher.ACTION_EXECUTE_GOAL)
+                addAction(GoalDispatcher.ACTION_RUN_DIAGNOSTIC)
+                addAction(GoalDispatcher.ACTION_RUN_APP_AUDIT)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(goalDispatcher, filter, RECEIVER_NOT_EXPORTED)
             } else {

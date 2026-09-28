@@ -19,7 +19,10 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.example.localagent.engine.DiagnosticRunner
+import com.example.localagent.inventory.AppInventoryManager
 import com.example.localagent.memory.RuleLedger
+import com.example.localagent.receiver.GoalDispatcher
 import java.io.File
 
 open class MainActivity : Activity() {
@@ -31,6 +34,7 @@ open class MainActivity : Activity() {
     private lateinit var tvTerminalLog: TextView
     private lateinit var svTerminal: ScrollView
     private lateinit var tvMetricsBar: TextView
+    private lateinit var tvInventoryLedger: TextView
 
     private val telemetryLogs = StringBuilder()
     private var telemetryReceiver: BroadcastReceiver? = null
@@ -156,7 +160,7 @@ open class MainActivity : Activity() {
 
         // Self-Diagnostic Testing Panel Buttons
         val diagTitle = TextView(this).apply {
-            text = "SELF-DIAGNOSTIC TESTING PANEL"
+            text = "SELF-DIAGNOSTIC & AUDIT PANEL"
             textSize = 13f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
@@ -168,7 +172,43 @@ open class MainActivity : Activity() {
             setPadding(0, 0, 0, 8)
         }
 
-        val btnTestAppLaunch = Button(this).apply {
+        val btnFullTest = Button(this).apply {
+            text = "[1. Full E2E Test]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(GoalDispatcher.ACTION_RUN_DIAGNOSTIC))
+                appendLog("[DIAG] Triggered [1. Full E2E Test]...")
+            }
+        }
+
+        val btnAppAudit = Button(this).apply {
+            text = "[Full Device Audit]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(GoalDispatcher.ACTION_RUN_APP_AUDIT))
+                appendLog("[DIAG] Triggered [Full Device Audit]...")
+            }
+        }
+
+        diagRow1.addView(btnFullTest)
+        diagRow1.addView(btnAppAudit)
+
+        val diagRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        val btnTestSingleApp = Button(this).apply {
             text = "[Test App Launch]"
             textSize = 11f
             setTextColor(Color.parseColor("#39FF14"))
@@ -182,58 +222,38 @@ open class MainActivity : Activity() {
             }
         }
 
-        val btnTestNodeDump = Button(this).apply {
-            text = "[Test Node Dump]"
+        val btnTestTypeOnly = Button(this).apply {
+            text = "[Test Typing Only]"
             textSize = 11f
             setTextColor(Color.parseColor("#39FF14"))
             background = createBorderDrawable(Color.parseColor("#16A34A"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 4
-            }
-            setOnClickListener {
-                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_NODE_DUMP))
-                appendLog("[DIAG] Triggered [Test Node Dump]...")
-            }
-        }
-
-        diagRow1.addView(btnTestAppLaunch)
-        diagRow1.addView(btnTestNodeDump)
-
-        val diagRow2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 16)
-        }
-
-        val btnTestCoordinateTap = Button(this).apply {
-            text = "[Test Coordinate Tap]"
-            textSize = 11f
-            setTextColor(Color.parseColor("#39FF14"))
-            background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 4
-            }
-            setOnClickListener {
-                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_COORDINATE_TAP))
-                appendLog("[DIAG] Triggered [Test Coordinate Tap]...")
-            }
-        }
-
-        val btnTestTextInjection = Button(this).apply {
-            text = "[Test Text Injection]"
-            textSize = 11f
-            setTextColor(Color.parseColor("#39FF14"))
-            background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 4
+                marginStart = 2
+                marginEnd = 2
             }
             setOnClickListener {
                 sendBroadcast(Intent(LocalAgentService.ACTION_TEST_TEXT_INJECTION))
-                appendLog("[DIAG] Triggered [Test Text Injection]...")
+                appendLog("[DIAG] Triggered [Test Typing Only]...")
             }
         }
 
-        diagRow2.addView(btnTestCoordinateTap)
-        diagRow2.addView(btnTestTextInjection)
+        val btnTestSwipe = Button(this).apply {
+            text = "[Test Swipe Scroll]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_COORDINATE_TAP))
+                appendLog("[DIAG] Triggered [Test Swipe Scroll]...")
+            }
+        }
+
+        diagRow2.addView(btnTestSingleApp)
+        diagRow2.addView(btnTestTypeOnly)
+        diagRow2.addView(btnTestSwipe)
 
         // Settings Buttons
         val settingsContainer = LinearLayout(this).apply {
@@ -282,7 +302,25 @@ open class MainActivity : Activity() {
             textSize = 11f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
-            setPadding(0, 0, 0, 12)
+            setPadding(0, 0, 0, 8)
+        }
+
+        // App Inventory Ledger View
+        val inventoryTitle = TextView(this).apply {
+            text = "APP INVENTORY LEDGER CATALOG"
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#00F0FF"))
+            setPadding(0, 4, 0, 4)
+        }
+
+        tvInventoryLedger = TextView(this).apply {
+            text = "Loading App Inventory Catalog...\n"
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#94A3B8"))
+            setBackgroundColor(Color.parseColor("#1E293B"))
+            setPadding(16, 16, 16, 16)
         }
 
         // Live Tactical Terminal
@@ -291,7 +329,7 @@ open class MainActivity : Activity() {
             textSize = 13f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
-            setPadding(0, 4, 0, 4)
+            setPadding(0, 8, 0, 4)
         }
 
         tvTerminalLog = TextView(this).apply {
@@ -322,6 +360,8 @@ open class MainActivity : Activity() {
         rootLayout.addView(diagRow2)
         rootLayout.addView(settingsContainer)
         rootLayout.addView(tvMetricsBar)
+        rootLayout.addView(inventoryTitle)
+        rootLayout.addView(tvInventoryLedger)
         rootLayout.addView(terminalTitle)
         rootLayout.addView(svTerminal)
 
@@ -332,6 +372,7 @@ open class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateDashboardStatus()
+        refreshAppInventoryLedger()
     }
 
     override fun onDestroy() {
@@ -356,12 +397,33 @@ open class MainActivity : Activity() {
             if (hasOverlay) Color.parseColor("#16A34A") else Color.parseColor("#DC2626")
         )
 
-        // Read RuleLedger stats directly
         try {
             val ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
             tvMetricsBar.text = "RULES LEDGER: LOADED | MAX DEPTH: 7 | STATUS: ONLINE"
         } catch (e: Exception) {
             tvMetricsBar.text = "RULES LEDGER: 0 | MAX DEPTH: 7 | STATUS: STANDBY"
+        }
+    }
+
+    private fun refreshAppInventoryLedger() {
+        try {
+            val inventoryManager = AppInventoryManager(this)
+            val profiles = inventoryManager.scanDeviceApps()
+            val sb = StringBuilder()
+            profiles.take(6).forEach { p ->
+                val badges = StringBuilder().apply {
+                    if (p.launchable) append("[LAUNCH] ")
+                    if (p.hasEditableInput) append("[TYPE] ")
+                    if (p.supportsScroll) append("[SCROLL] ")
+                }.toString().trim()
+                sb.append("• ").append(p.appName).append(" ").append(badges.ifEmpty { "[FOUND]" }).append("\n")
+            }
+            if (profiles.size > 6) {
+                sb.append("... and ").append(profiles.size - 6).append(" more installed apps.")
+            }
+            tvInventoryLedger.text = sb.toString().trim()
+        } catch (e: Exception) {
+            tvInventoryLedger.text = "Inventory catalog pending scan."
         }
     }
 
@@ -388,12 +450,17 @@ open class MainActivity : Activity() {
                             val result = intent.getStringExtra(LocalAgentService.EXTRA_RESULT_DATA)
                             appendLog("[EXTRACT] Goal Completed [$status]: $result")
                         }
+                        DiagnosticRunner.ACTION_AUDIT_COMPLETED -> {
+                            appendLog("[AUDIT] Full Device Application Audit Finished!")
+                            refreshAppInventoryLedger()
+                        }
                     }
                 }
             }
             val filter = IntentFilter().apply {
                 addAction(LocalAgentService.ACTION_TELEMETRY_LOG)
                 addAction(LocalAgentService.ACTION_GOAL_COMPLETED)
+                addAction(DiagnosticRunner.ACTION_AUDIT_COMPLETED)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(telemetryReceiver, filter, RECEIVER_NOT_EXPORTED)
