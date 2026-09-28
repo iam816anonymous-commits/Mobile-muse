@@ -33,32 +33,18 @@ object LocalHeuristicEngine {
         val sanitized = goalText.replace(Regex("(?i)(calculate|compute|localagent)"), "").trim()
         val tokens = sanitized.toCharArray().map { it.toString() }
 
-        var matchedAny = false
-        for (token in tokens) {
-            val tokenNode = findNodeMatchingToken(rootNode, token)
-            if (tokenNode != null) {
-                try {
-                    service.performClickWithFallback(tokenNode)
-                    matchedAny = true
-                    service.broadcastTelemetryLog("HEURISTIC", "Math token clicked: '$token'")
-                } finally {
-                    tokenNode.recycle()
-                }
-            }
+        val tappedTokens = GenericUIOperator.sequenceTap(rootNode, tokens, service, 150L)
+        val confirmed = GenericUIOperator.confirmAction(rootNode, listOf("=", "equals"), service)
+
+        val leafNumbers = GenericUIOperator.harvestLeafText(rootNode) { text -> text.matches(Regex("^[0-9,.]+$")) }
+        if (leafNumbers.isNotEmpty()) {
+            val resultVal = leafNumbers.last()
+            service.broadcastTelemetryLog("RESULT", "Harvested calculator leaf text: $resultVal")
+            service.voiceSynthesizer?.speak("The answer is $resultVal")
+            service.stateManager.completeTask()
         }
 
-        val equalsNode = findNodeMatchingToken(rootNode, "=") ?: findNodeMatchingToken(rootNode, "equals")
-        if (equalsNode != null) {
-            try {
-                service.performClickWithFallback(equalsNode)
-                matchedAny = true
-                service.broadcastTelemetryLog("HEURISTIC", "Clicked math equals button")
-            } finally {
-                equalsNode.recycle()
-            }
-        }
-
-        return matchedAny
+        return tappedTokens || confirmed
     }
 
     private fun processSearchHeuristics(service: LocalAgentService, query: String, rootNode: AccessibilityNodeInfo): Boolean {
@@ -90,22 +76,9 @@ object LocalHeuristicEngine {
     }
 
     private fun processKeywordHeuristics(service: LocalAgentService, goalText: String, rootNode: AccessibilityNodeInfo): Boolean {
-        val keywords = listOf("new note", "record", "add", "plus", "create", "start", "settings", "search")
-        for (keyword in keywords) {
-            if (goalText.contains(keyword)) {
-                val matchNode = findNodeByLabel(rootNode, keyword)
-                if (matchNode != null) {
-                    try {
-                        service.performClickWithFallback(matchNode)
-                        service.broadcastTelemetryLog("HEURISTIC", "Keyword match clicked: '$keyword'")
-                        return true
-                    } finally {
-                        matchNode.recycle()
-                    }
-                }
-            }
-        }
-        return false
+        val keywords = listOf("new note", "record", "add", "plus", "create", "start", "settings", "search", "+")
+        val matchingKeywords = keywords.filter { goalText.contains(it) }.ifEmpty { keywords }
+        return GenericUIOperator.findAndClickByKeywords(rootNode, matchingKeywords, service)
     }
 
     private fun findNodeMatchingToken(node: AccessibilityNodeInfo?, token: String): AccessibilityNodeInfo? {

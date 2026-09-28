@@ -23,6 +23,11 @@ object AutonomousEngine {
     private const val TAG = "AutonomousEngine"
     private val fingerprintRingBuffer = ArrayDeque<String>(3)
 
+    fun resetLocks() {
+        fingerprintRingBuffer.clear()
+        StallDetector.reset()
+    }
+
     fun processCurrentScreen(service: LocalAgentService, goalText: String) {
         service.serviceScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
@@ -110,29 +115,19 @@ object AutonomousEngine {
                 return
             }
 
-            // 2. Query AI Bridge with ReAct Prompt format if no local rule exists
-            val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
-            service.broadcastTelemetryLog("SYS", "Querying AI Bridge for unknown screen state...")
-            service.aiBridgeClient.sendPayloadAsync(serializedScreen, goalText) { result ->
-                result.onSuccess { aiJsonResponse ->
-                    Log.d(TAG, "AI Response: $aiJsonResponse")
-                    service.broadcastTelemetryLog("EXTRACT", "AI Bridge response received")
-                    val parsedRule = parseAiActionResponse(aiJsonResponse)
-                    if (parsedRule != null) {
+            // 2. Local-first execution (API Bridge dormant/disconnected)
+            service.broadcastTelemetryLog("SYS", "Executing 100% offline local heuristic pipeline...")
+            val rootForHeuristic = service.getActiveWindowRoot()
+            if (rootForHeuristic != null) {
+                try {
+                    val heuristicHandled = LocalHeuristicEngine.processLocalHeuristics(service, goalText, rootForHeuristic)
+                    if (heuristicHandled) {
                         StallDetector.reset()
-                        service.ruleLedger.addTransition(screenFingerprint, goalText, parsedRule)
-                        executeActionRule(service, parsedRule, service.getActiveWindowRoot())
                         service.memoryLedger.recordStep(
                             stepIndex = service.stateManager.getCurrentState().currentStepIndex,
-                            action = "AI_RULE_ACTION: ${parsedRule.type}",
+                            action = "LOCAL_HEURISTIC_SUCCESS",
                             success = true
                         )
-                        if (parsedRule.type == ActionType.TERMINATE) {
-                            val resultText = parsedRule.textPayload ?: "Task complete."
-                            service.broadcastTelemetryLog("RESULT", "Verified output: $resultText")
-                            service.voiceSynthesizer?.speak("The result is $resultText")
-                            service.stateManager.completeTask()
-                        }
                     } else {
                         StallDetector.recordFailure()
                         val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
@@ -144,29 +139,8 @@ object AutonomousEngine {
                             }
                         }
                     }
-                }.onFailure { error ->
-                    Log.e(TAG, "AI Bridge query failed", error)
-                    StallDetector.recordFailure()
-                    service.broadcastTelemetryLog("SYS", "AI Bridge unavailable: ${error.message}. Triggering local heuristics.")
-
-                    val rootForHeuristic = service.getActiveWindowRoot()
-                    if (rootForHeuristic != null) {
-                        try {
-                            val heuristicHandled = LocalHeuristicEngine.processLocalHeuristics(service, goalText, rootForHeuristic)
-                            if (!heuristicHandled) {
-                                val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
-                                if (StallDetector.isStalled(hasTargetIndex = false)) {
-                                    val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
-                                    SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
-                                        service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
-                                        executeActionRule(service, healedRule, service.getActiveWindowRoot())
-                                    }
-                                }
-                            }
-                        } finally {
-                            rootForHeuristic.recycle()
-                        }
-                    }
+                } finally {
+                    rootForHeuristic.recycle()
                 }
             }
 

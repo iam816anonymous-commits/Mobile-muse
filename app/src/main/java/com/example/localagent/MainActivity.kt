@@ -659,19 +659,7 @@ open class MainActivity : Activity() {
 
     private fun updateSystemStatus() {
         val isAccessEnabled = isAccessibilityServiceEnabled(this, LocalAgentService::class.java)
-        tvAccessibilityBadge.text = if (isAccessEnabled) "ACCESSIBILITY: [GRANTED]" else "ACCESSIBILITY: [REQUIRED]"
-        tvAccessibilityBadge.background = createBadgeDrawable(if (isAccessEnabled) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
-
-        val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
-        tvOverlayBadge.text = if (hasOverlay) "OVERLAY: [GRANTED]" else "OVERLAY: [REQUIRED]"
-        tvOverlayBadge.background = createBadgeDrawable(if (hasOverlay) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
-
-        val isBatteryWhitelisted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
-            pm?.isIgnoringBatteryOptimizations(packageName) ?: false
-        } else true
-        tvBatteryBadge.text = if (isBatteryWhitelisted) "BATTERY: [GRANTED]" else "BATTERY: [REQUIRED]"
-        tvBatteryBadge.background = createBadgeDrawable(if (isBatteryWhitelisted) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
+        val isInstanceBound = LocalAgentService.instance != null
 
         val hasAudio = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         tvAudioBadge.text = if (hasAudio) "AUDIO: [GRANTED]" else "AUDIO: [REQUIRED]"
@@ -685,11 +673,37 @@ open class MainActivity : Activity() {
         btnEngage.isEnabled = allRuntimeGranted
         btnVoiceMic.isEnabled = allRuntimeGranted
 
-        if (!allRuntimeGranted) {
+        if (isAccessEnabled && !isInstanceBound) {
+            tvPermissionBanner.text = "Accessibility link severed (Zombie State). Tap to reset link."
+            tvPermissionBanner.setBackgroundColor(Color.parseColor("#EAB308")) // Yellow warning
             tvPermissionBanner.visibility = View.VISIBLE
+            tvPermissionBanner.setOnClickListener {
+                PermissionManager.openAccessibilitySettings(this@MainActivity)
+            }
+        } else if (!allRuntimeGranted) {
+            tvPermissionBanner.text = "Critical Permissions Missing: Storage, Mic, or Camera denied. Tap to grant."
+            tvPermissionBanner.setBackgroundColor(Color.parseColor("#FF0055"))
+            tvPermissionBanner.visibility = View.VISIBLE
+            tvPermissionBanner.setOnClickListener {
+                PermissionManager.checkAndRequestInitialPermissions(this@MainActivity)
+            }
         } else {
             tvPermissionBanner.visibility = View.GONE
         }
+
+        tvAccessibilityBadge.text = if (isAccessEnabled && isInstanceBound) "ACCESSIBILITY: [GRANTED]" else "ACCESSIBILITY: [REQUIRED]"
+        tvAccessibilityBadge.background = createBadgeDrawable(if (isAccessEnabled && isInstanceBound) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
+
+        val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
+        tvOverlayBadge.text = if (hasOverlay) "OVERLAY: [GRANTED]" else "OVERLAY: [REQUIRED]"
+        tvOverlayBadge.background = createBadgeDrawable(if (hasOverlay) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
+
+        val isBatteryWhitelisted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.isIgnoringBatteryOptimizations(packageName) ?: false
+        } else true
+        tvBatteryBadge.text = if (isBatteryWhitelisted) "BATTERY: [GRANTED]" else "BATTERY: [REQUIRED]"
+        tvBatteryBadge.background = createBadgeDrawable(if (isBatteryWhitelisted) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
 
         try {
             val memoryInfo = ActivityManager.MemoryInfo()

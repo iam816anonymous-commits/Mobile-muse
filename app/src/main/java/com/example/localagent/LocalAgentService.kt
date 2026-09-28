@@ -59,6 +59,7 @@ open class LocalAgentService : AccessibilityService() {
 
     companion object {
         private const val TAG = "LocalAgentService"
+        var instance: LocalAgentService? = null
         const val ACTION_GOAL_COMPLETED = "com.localagent.GOAL_COMPLETED"
         const val ACTION_TELEMETRY_LOG = "com.localagent.TELEMETRY_LOG"
         const val EXTRA_GOAL_TEXT = "goal_text"
@@ -114,6 +115,7 @@ open class LocalAgentService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         hudManager.hide()
         voiceSynthesizer?.shutdown()
         unregisterKillSwitch()
@@ -239,6 +241,7 @@ open class LocalAgentService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         Log.d(TAG, "LocalAgentService connected")
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
