@@ -15,8 +15,9 @@ object GenericUIOperator {
         for (keyword in keywords) {
             val node = findMatchingNodeByLabel(root, keyword.lowercase().trim())
             if (node != null) {
+                var clickableNode: AccessibilityNodeInfo? = null
                 try {
-                    val clickableNode = findClickableAncestor(node) ?: node
+                    clickableNode = findClickableAncestor(node) ?: node
                     val clicked = if (service != null) {
                         service.performClickWithFallback(clickableNode)
                     } else {
@@ -27,6 +28,9 @@ object GenericUIOperator {
                         return true
                     }
                 } finally {
+                    if (clickableNode != null && clickableNode != node) {
+                        clickableNode.recycle()
+                    }
                     node.recycle()
                 }
             }
@@ -56,8 +60,9 @@ object GenericUIOperator {
         for (token in tokens) {
             val node = findMatchingNodeByLabel(root, token.trim())
             if (node != null) {
+                var clickableNode: AccessibilityNodeInfo? = null
                 try {
-                    val clickableNode = findClickableAncestor(node) ?: node
+                    clickableNode = findClickableAncestor(node) ?: node
                     if (service != null) {
                         service.performClickWithFallback(clickableNode)
                     } else {
@@ -66,6 +71,9 @@ object GenericUIOperator {
                     tappedAny = true
                     try { Thread.sleep(delayMs) } catch (e: Exception) {}
                 } finally {
+                    if (clickableNode != null && clickableNode != node) {
+                        clickableNode.recycle()
+                    }
                     node.recycle()
                 }
             }

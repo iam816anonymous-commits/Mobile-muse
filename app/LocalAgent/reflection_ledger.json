@@ -220,5 +220,29 @@
     "ramSpike": 120,
     "obstacles": 1,
     "steps": 4
+  },
+  {
+    "duration": 1500,
+    "ramSpike": 120,
+    "obstacles": 1,
+    "steps": 4
+  },
+  {
+    "duration": 1500,
+    "ramSpike": 120,
+    "obstacles": 1,
+    "steps": 4
+  },
+  {
+    "duration": 1500,
+    "ramSpike": 120,
+    "obstacles": 1,
+    "steps": 4
+  },
+  {
+    "duration": 1500,
+    "ramSpike": 120,
+    "obstacles": 1,
+    "steps": 4
   }
 ]

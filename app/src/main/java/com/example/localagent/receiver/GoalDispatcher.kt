@@ -154,9 +154,12 @@ class GoalDispatcher(
                                             }
                                         }
 
-                                        if (!remainingAction.isNullOrEmpty() && remainingAction != targetAppQuery) {
-                                            AutonomousEngine.processCurrentScreen(service, remainingAction)
+                                        val actionToRun = if (!remainingAction.isNullOrEmpty() && remainingAction != targetAppQuery) {
+                                            remainingAction
+                                        } else {
+                                            goalText
                                         }
+                                        AutonomousEngine.processCurrentScreen(service, actionToRun)
                                         }
                                 } else if (isExplicitLaunch) {
                                     service.broadcastTelemetryLog("WARN", "No installed app matched '$targetAppQuery'")

@@ -115,32 +115,25 @@ object AutonomousEngine {
                 return
             }
 
-            // 2. Local-first execution (API Bridge dormant/disconnected)
-            service.broadcastTelemetryLog("SYS", "Executing 100% offline local heuristic pipeline...")
-            val rootForHeuristic = service.getActiveWindowRoot()
-            if (rootForHeuristic != null) {
-                try {
-                    val heuristicHandled = LocalHeuristicEngine.processLocalHeuristics(service, goalText, rootForHeuristic)
-                    if (heuristicHandled) {
-                        StallDetector.reset()
-                        service.memoryLedger.recordStep(
-                            stepIndex = service.stateManager.getCurrentState().currentStepIndex,
-                            action = "LOCAL_HEURISTIC_SUCCESS",
-                            success = true
-                        )
-                    } else {
-                        StallDetector.recordFailure()
-                        val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
-                        if (StallDetector.isStalled(hasTargetIndex = false)) {
-                            val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
-                            SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
-                                service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
-                                executeActionRule(service, healedRule, service.getActiveWindowRoot())
-                            }
-                        }
+            // 2. Local-first execution via UniversalAppOperator (API Bridge dormant/disconnected)
+            service.broadcastTelemetryLog("SYS", "Executing 100% offline Universal Task Pipeline...")
+            val pipelineSuccess = UniversalAppOperator.executeTaskPipeline(service, goalText)
+            if (pipelineSuccess) {
+                StallDetector.reset()
+                service.memoryLedger.recordStep(
+                    stepIndex = service.stateManager.getCurrentState().currentStepIndex,
+                    action = "UNIVERSAL_PIPELINE_SUCCESS",
+                    success = true
+                )
+            } else {
+                StallDetector.recordFailure()
+                val visibleLabels = extractedNodes.mapNotNull { it.text ?: it.contentDescription }
+                if (StallDetector.isStalled(hasTargetIndex = false)) {
+                    val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
+                    SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
+                        service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
+                        executeActionRule(service, healedRule, service.getActiveWindowRoot())
                     }
-                } finally {
-                    rootForHeuristic.recycle()
                 }
             }
 
