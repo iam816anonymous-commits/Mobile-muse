@@ -81,6 +81,8 @@ object AutonomousEngine {
             val actionType = when (actionName) {
                 "INPUT_TEXT" -> ActionType.INPUT
                 "SWIPE" -> ActionType.SWIPE
+                "SCROLL" -> ActionType.SCROLL
+                "EXTRACT_RESULT" -> ActionType.EXTRACT_RESULT
                 "TERMINATE" -> ActionType.TERMINATE
                 else -> ActionType.CLICK
             }
@@ -102,12 +104,25 @@ object AutonomousEngine {
                 val targetNode = findEditableNode(rootNode)
                 if (targetNode != null) {
                     try {
+                        targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                         val arguments = Bundle().apply {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, payload)
                         }
                         val success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
                         if (!success) {
                             service.performClickWithFallback(targetNode)
+                        }
+
+                        // Locate and click submit/send button
+                        if (rootNode != null) {
+                            val sendNode = findSendOrSubmitButton(rootNode)
+                            if (sendNode != null) {
+                                try {
+                                    service.performClickWithFallback(sendNode)
+                                } finally {
+                                    sendNode.recycle()
+                                }
+                            }
                         }
                     } finally {
                         targetNode.recycle()
@@ -127,7 +142,7 @@ object AutonomousEngine {
                     }
                 }
             }
-            ActionType.SWIPE -> {
+            ActionType.SWIPE, ActionType.SCROLL -> {
                 rule.targetBounds?.let { bounds ->
                     service.gestureExecutor.swipe(
                         bounds.centerX().toFloat(),
@@ -137,20 +152,57 @@ object AutonomousEngine {
                     )
                 }
             }
+            ActionType.EXTRACT_RESULT -> {
+                Log.d(TAG, "Result extracted: ${rule.textPayload}")
+            }
             ActionType.TERMINATE -> {
                 service.stateManager.completeTask()
             }
         }
     }
 
-    private fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+    fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
-        if (node.isEditable) {
+
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val hint = node.hintText?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+        val isInputHint = hint.contains("ask") || hint.contains("search") || hint.contains("message") ||
+                text.contains("ask") || text.contains("search") || text.contains("message") ||
+                desc.contains("ask") || desc.contains("search") || desc.contains("message")
+
+        if (node.isEditable || isInputHint) {
             return AccessibilityNodeInfo.obtain(node)
         }
+
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val match = findEditableNode(child)
+            child.recycle()
+            if (match != null) return match
+        }
+        return null
+    }
+
+    fun findSendOrSubmitButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+        val isSendOrSubmit = text.contains("send") || text.contains("submit") || text.contains("search") ||
+                desc.contains("send") || desc.contains("submit") || desc.contains("search")
+
+        val hasActions = try { node.actionList?.isNotEmpty() == true } catch (e: Exception) { false }
+
+        if ((node.isClickable || hasActions) && isSendOrSubmit) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val match = findSendOrSubmitButton(child)
             child.recycle()
             if (match != null) return match
         }

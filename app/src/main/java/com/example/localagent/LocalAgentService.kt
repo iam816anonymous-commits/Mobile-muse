@@ -12,7 +12,6 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.example.localagent.engine.AppResolver
 import com.example.localagent.engine.AutonomousEngine
 import com.example.localagent.gestures.ActionExecutor
 import com.example.localagent.gestures.GestureExecutor
@@ -21,15 +20,15 @@ import com.example.localagent.intents.IntentLauncher
 import com.example.localagent.memory.MemoryLedger
 import com.example.localagent.memory.RuleLedger
 import com.example.localagent.network.AiBridgeClient
-import com.example.localagent.receiver.GoalBroadcastReceiver
+import com.example.localagent.receiver.GoalDispatcher
 import com.example.localagent.routines.TestRoutines
 import com.example.localagent.safety.KillSwitchReceiver
+import com.example.localagent.serializer.ScreenSerializer
 import com.example.localagent.state.TaskStateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -56,8 +55,8 @@ open class LocalAgentService : AccessibilityService() {
     lateinit var gestureExecutor: GestureExecutor
     lateinit var hudManager: FloatingHudManager
     private var killSwitchReceiver: KillSwitchReceiver? = null
-    private var goalBroadcastReceiver: GoalBroadcastReceiver? = null
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var goalDispatcher: GoalDispatcher? = null
+    val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val backgroundExecutor = Executors.newSingleThreadScheduledExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private var lastVolumeDownTime: Long = 0L
@@ -76,14 +75,14 @@ open class LocalAgentService : AccessibilityService() {
         }
 
         registerKillSwitch()
-        registerGoalReceiver()
+        registerGoalDispatcher()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         hudManager.hide()
         unregisterKillSwitch()
-        unregisterGoalReceiver()
+        unregisterGoalDispatcher()
         serviceScope.cancel()
         backgroundExecutor.shutdown()
     }
@@ -293,31 +292,26 @@ open class LocalAgentService : AccessibilityService() {
         return TestRoutines.runYouTubePlaybackTest(this, query)
     }
 
-    private fun registerGoalReceiver() {
-        if (goalBroadcastReceiver == null) {
-            goalBroadcastReceiver = GoalBroadcastReceiver(this) { goalText ->
-                serviceScope.launch {
-                    Log.d(TAG, "Resolving app for goal in background coroutine: $goalText")
-                    AppResolver.resolveAndLaunch(this@LocalAgentService, goalText)
-                }
-            }
-            val filter = IntentFilter(GoalBroadcastReceiver.ACTION_EXECUTE_GOAL)
+    private fun registerGoalDispatcher() {
+        if (goalDispatcher == null) {
+            goalDispatcher = GoalDispatcher(this, serviceScope)
+            val filter = IntentFilter(GoalDispatcher.ACTION_EXECUTE_GOAL)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(goalBroadcastReceiver, filter, RECEIVER_NOT_EXPORTED)
+                registerReceiver(goalDispatcher, filter, RECEIVER_NOT_EXPORTED)
             } else {
-                registerReceiver(goalBroadcastReceiver, filter)
+                registerReceiver(goalDispatcher, filter)
             }
         }
     }
 
-    private fun unregisterGoalReceiver() {
-        goalBroadcastReceiver?.let {
+    private fun unregisterGoalDispatcher() {
+        goalDispatcher?.let {
             try {
                 unregisterReceiver(it)
             } catch (e: Exception) {
-                Log.e(TAG, "Error unregistering goal receiver", e)
+                Log.e(TAG, "Error unregistering goal dispatcher", e)
             }
-            goalBroadcastReceiver = null
+            goalDispatcher = null
         }
     }
 

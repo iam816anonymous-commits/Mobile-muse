@@ -9,6 +9,8 @@ enum class ActionType {
     CLICK,
     INPUT,
     SWIPE,
+    SCROLL,
+    EXTRACT_RESULT,
     TERMINATE
 }
 
