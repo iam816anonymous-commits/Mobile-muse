@@ -23,6 +23,7 @@ import com.example.localagent.gestures.ActionExecutor
 import com.example.localagent.gestures.GestureExecutor
 import com.example.localagent.hud.FloatingHudManager
 import com.example.localagent.intents.IntentLauncher
+import com.example.localagent.memory.KnowledgeLedger
 import com.example.localagent.memory.MemoryLedger
 import com.example.localagent.memory.RuleLedger
 import com.example.localagent.network.AiBridgeClient
@@ -31,6 +32,7 @@ import com.example.localagent.routines.TestRoutines
 import com.example.localagent.safety.KillSwitchReceiver
 import com.example.localagent.serializer.ScreenSerializer
 import com.example.localagent.state.TaskStateManager
+import com.example.localagent.voice.VoiceSynthesizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -65,16 +67,18 @@ open class LocalAgentService : AccessibilityService() {
         const val ACTION_TEST_COORDINATE_TAP = "com.localagent.TEST_COORDINATE_TAP"
         const val ACTION_TEST_TEXT_INJECTION = "com.localagent.TEST_TEXT_INJECTION"
 
-        const val MAX_TRAVERSAL_DEPTH = 7
+        const val MAX_TRAVERSAL_DEPTH = 6
         private const val DOUBLE_PRESS_TIMEOUT_MS = 500L
     }
 
     val stateManager = TaskStateManager(maxStepsLimit = 15)
     lateinit var memoryLedger: MemoryLedger
     lateinit var ruleLedger: RuleLedger
+    lateinit var knowledgeLedger: KnowledgeLedger
     var aiBridgeClient: AiBridgeClient = AiBridgeClient()
     lateinit var gestureExecutor: GestureExecutor
     lateinit var hudManager: FloatingHudManager
+    var voiceSynthesizer: VoiceSynthesizer? = null
     private var killSwitchReceiver: KillSwitchReceiver? = null
     private var goalDispatcher: GoalDispatcher? = null
     private var diagnosticReceiver: BroadcastReceiver? = null
@@ -87,7 +91,9 @@ open class LocalAgentService : AccessibilityService() {
         super.onCreate()
         memoryLedger = MemoryLedger(File(filesDir, "memory_ledger.json"))
         ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
+        knowledgeLedger = KnowledgeLedger(File(filesDir, "knowledge_ledger.json"))
         gestureExecutor = GestureExecutor(this)
+        voiceSynthesizer = VoiceSynthesizer(this)
         hudManager = FloatingHudManager(this) {
             haltAndResetAgent("Instant abort triggered via floating HUD tap")
         }
@@ -104,6 +110,7 @@ open class LocalAgentService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         hudManager.hide()
+        voiceSynthesizer?.shutdown()
         unregisterKillSwitch()
         unregisterGoalDispatcher()
         unregisterDiagnosticReceiver()
@@ -129,6 +136,7 @@ open class LocalAgentService : AccessibilityService() {
         }
         sendBroadcast(intent)
         broadcastTelemetryLog("EXTRACT", "Goal Completed [$status]: $resultData")
+        voiceSynthesizer?.speak("Done. Extracted answer: $resultData")
         Log.d(TAG, "Broadcasted GOAL_COMPLETED: status=$status, result=$resultData")
     }
 
@@ -281,6 +289,16 @@ open class LocalAgentService : AccessibilityService() {
         }
 
         val goalText = state.goal?.description ?: return
+
+        // Knowledge Ledger Fast Lookup before full execution
+        val knownAnswer = knowledgeLedger.findAnswerForQuery(goalText)
+        if (knownAnswer != null) {
+            broadcastTelemetryLog("KNOWLEDGE", "Fast Local Query Match Found: '${knownAnswer.answer}'")
+            broadcastGoalCompleted(goalText, "SUCCESS", knownAnswer.answer)
+            stateManager.completeTask()
+            return
+        }
+
         AutonomousEngine.processCurrentScreen(this, goalText)
     }
 
@@ -297,7 +315,7 @@ open class LocalAgentService : AccessibilityService() {
     ) {
         if (node == null) return
 
-        // Filter out nodes not visible to user or beyond traversal depth cap (7 levels)
+        // Filter out nodes not visible to user or beyond traversal depth cap (6 levels)
         if (!node.isVisibleToUser || currentDepth >= MAX_TRAVERSAL_DEPTH) {
             return
         }

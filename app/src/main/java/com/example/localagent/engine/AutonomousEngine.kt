@@ -1,5 +1,6 @@
 package com.example.localagent.engine
 
+import android.accessibilityservice.AccessibilityService
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
@@ -7,6 +8,7 @@ import com.example.localagent.LocalAgentService
 import com.example.localagent.NodeData
 import com.example.localagent.memory.ActionRule
 import com.example.localagent.memory.ActionType
+import com.example.localagent.memory.MemoryGuard
 import com.example.localagent.memory.ScreenHasher
 import com.example.localagent.serializer.ScreenSerializer
 import org.json.JSONObject
@@ -14,16 +16,45 @@ import org.json.JSONObject
 object AutonomousEngine {
 
     private const val TAG = "AutonomousEngine"
+    private val fingerprintRingBuffer = ArrayDeque<String>(3)
 
     fun processCurrentScreen(service: LocalAgentService, goalText: String) {
-        val rootNode = service.rootInActiveWindow ?: return
+        // LMK Protection Check
+        if (MemoryGuard.isLowMemoryCondition(service)) {
+            service.broadcastTelemetryLog("SYS", "Low RAM <250MB threshold reached. Resetting task state to IDLE.")
+            service.haltAndResetAgent("Low RAM Memory Protection Triggered")
+            return
+        }
+
+        val rootNode = service.getActiveWindowRoot() ?: return
         try {
+            // Check for obstacle/popup blockers first
+            val obstacleHandled = ObstacleDetector.checkForAndDismissObstacle(service, rootNode)
+            if (obstacleHandled) {
+                return
+            }
+
             val extractedNodes = mutableListOf<NodeData>()
             service.traverseAndExtractNode(rootNode, extractedNodes)
 
             val packageName = rootNode.packageName?.toString()
             val screenFingerprint = ScreenHasher.computeFingerprint(packageName, extractedNodes)
             service.broadcastTelemetryLog("SYS", "Screen Fingerprint computed: #$screenFingerprint")
+
+            // Loop Detection via Ring Buffer
+            if (fingerprintRingBuffer.size >= 3) {
+                fingerprintRingBuffer.removeFirst()
+            }
+            fingerprintRingBuffer.addLast(screenFingerprint)
+
+            if (fingerprintRingBuffer.size == 3 && fingerprintRingBuffer.all { it == screenFingerprint }) {
+                Log.w(TAG, "Loop detected! Fingerprint $screenFingerprint repeated 3 times. Stepping back and purging cached rule.")
+                service.broadcastTelemetryLog("RECOVERY", "Loop detected on #$screenFingerprint. Stepping back & purging rule.")
+                service.ruleLedger.removeTransition(screenFingerprint, goalText)
+                fingerprintRingBuffer.clear()
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                return
+            }
 
             // 1. Check local rule graph
             val cachedRule = service.ruleLedger.getActionRule(screenFingerprint, goalText)
@@ -49,7 +80,7 @@ object AutonomousEngine {
                     val parsedRule = parseAiActionResponse(aiJsonResponse)
                     if (parsedRule != null) {
                         service.ruleLedger.addTransition(screenFingerprint, goalText, parsedRule)
-                        executeActionRule(service, parsedRule, service.rootInActiveWindow)
+                        executeActionRule(service, parsedRule, service.getActiveWindowRoot())
                         service.memoryLedger.recordStep(
                             stepIndex = service.stateManager.getCurrentState().currentStepIndex,
                             action = "AI_RULE_ACTION: ${parsedRule.type}",

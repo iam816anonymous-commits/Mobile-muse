@@ -58,7 +58,11 @@ data class RuleTransition(
 
 class RuleLedger(private val storageFile: File? = null) {
 
-    private val transitions = mutableMapOf<String, ActionRule>()
+    companion object {
+        const val MAX_RULE_ENTRIES = 300
+    }
+
+    private val transitions = LinkedHashMap<String, ActionRule>()
 
     init {
         loadFromFile()
@@ -72,6 +76,19 @@ class RuleLedger(private val storageFile: File? = null) {
     fun addTransition(screenFingerprint: String, userGoal: String, actionRule: ActionRule) {
         val key = makeKey(screenFingerprint, userGoal)
         transitions[key] = actionRule
+
+        // FIFO capping at 300 entries
+        while (transitions.size > MAX_RULE_ENTRIES) {
+            val firstKey = transitions.keys.iterator().next()
+            transitions.remove(firstKey)
+        }
+        saveToFile()
+    }
+
+    @Synchronized
+    fun removeTransition(screenFingerprint: String, userGoal: String) {
+        val key = makeKey(screenFingerprint, userGoal)
+        transitions.remove(key)
         saveToFile()
     }
 

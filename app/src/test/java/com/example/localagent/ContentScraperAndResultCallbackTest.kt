@@ -15,7 +15,7 @@ import org.mockito.Mockito.verify
 class ContentScraperAndResultCallbackTest {
 
     @Test
-    fun testContentScraper_collectScreenText() {
+    fun testContentScraper_collectLeafText() {
         val rootNode = mock(AccessibilityNodeInfo::class.java)
         val childNode = mock(AccessibilityNodeInfo::class.java)
 
@@ -26,8 +26,7 @@ class ContentScraperAndResultCallbackTest {
         `when`(childNode.text).thenReturn("Child Body Response")
         `when`(childNode.childCount).thenReturn(0)
 
-        val collectedText = ContentScraper.collectScreenText(rootNode)
-        assertTrue(collectedText.contains("Root Header"))
+        val collectedText = ContentScraper.collectLeafText(rootNode)
         assertTrue(collectedText.contains("Child Body Response"))
     }
 

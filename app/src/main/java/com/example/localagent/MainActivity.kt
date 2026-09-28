@@ -23,6 +23,7 @@ import com.example.localagent.engine.DiagnosticRunner
 import com.example.localagent.inventory.AppInventoryManager
 import com.example.localagent.memory.RuleLedger
 import com.example.localagent.receiver.GoalDispatcher
+import com.example.localagent.voice.VoiceCommandManager
 import java.io.File
 
 open class MainActivity : Activity() {
@@ -36,6 +37,7 @@ open class MainActivity : Activity() {
     private lateinit var tvMetricsBar: TextView
     private lateinit var tvInventoryLedger: TextView
 
+    private var voiceCommandManager: VoiceCommandManager? = null
     private val telemetryLogs = StringBuilder()
     private var telemetryReceiver: BroadcastReceiver? = null
 
@@ -126,7 +128,7 @@ open class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             background = createButtonDrawable(Color.parseColor("#00F0FF"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 8
+                marginEnd = 4
             }
             setOnClickListener {
                 val goal = etGoalInput.text.toString().trim()
@@ -140,13 +142,42 @@ open class MainActivity : Activity() {
             }
         }
 
+        val btnVoiceMic = Button(this).apply {
+            text = "🎤 [MIC]"
+            setTextColor(Color.parseColor("#0A0E17"))
+            typeface = Typeface.DEFAULT_BOLD
+            background = createButtonDrawable(Color.parseColor("#39FF14"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f).apply {
+                marginStart = 4
+                marginEnd = 4
+            }
+            setOnClickListener {
+                appendLog("[VOICE] Starting push-to-talk speech recognition...")
+                voiceCommandManager = VoiceCommandManager(
+                    this@MainActivity,
+                    onResult = { transcribed ->
+                        etGoalInput.setText(transcribed)
+                        appendLog("[VOICE] Transcribed: '$transcribed'")
+                        val intent = Intent("com.localagent.EXECUTE_GOAL").apply {
+                            putExtra("goal_text", transcribed)
+                        }
+                        sendBroadcast(intent)
+                    },
+                    onError = { err ->
+                        appendLog("[VOICE] Speech Error: $err")
+                    }
+                )
+                voiceCommandManager?.startListening()
+            }
+        }
+
         val btnAbort = Button(this).apply {
             text = "[ABORT ALL]"
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             background = createButtonDrawable(Color.parseColor("#EF4444"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 8
+                marginStart = 4
             }
             setOnClickListener {
                 val intent = Intent("com.example.localagent.ACTION_KILL_SWITCH")
@@ -156,6 +187,7 @@ open class MainActivity : Activity() {
         }
 
         buttonContainer.addView(btnEngage)
+        buttonContainer.addView(btnVoiceMic)
         buttonContainer.addView(btnAbort)
 
         // Self-Diagnostic Testing Panel Buttons
@@ -298,7 +330,7 @@ open class MainActivity : Activity() {
 
         // Memory Metrics Bar
         tvMetricsBar = TextView(this).apply {
-            text = "RULES LEDGER: 0 | MAX DEPTH: 7 | STATUS: READY"
+            text = "RULES LEDGER: 0/300 | MAX DEPTH: 6 | STATUS: READY"
             textSize = 11f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
@@ -377,6 +409,7 @@ open class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        voiceCommandManager?.destroyRecognizer()
         unregisterTelemetryReceiver()
     }
 
@@ -399,9 +432,9 @@ open class MainActivity : Activity() {
 
         try {
             val ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
-            tvMetricsBar.text = "RULES LEDGER: LOADED | MAX DEPTH: 7 | STATUS: ONLINE"
+            tvMetricsBar.text = "RULES LEDGER: LOADED (MAX 300) | MAX DEPTH: 6 | STATUS: ONLINE"
         } catch (e: Exception) {
-            tvMetricsBar.text = "RULES LEDGER: 0 | MAX DEPTH: 7 | STATUS: STANDBY"
+            tvMetricsBar.text = "RULES LEDGER: 0/300 | MAX DEPTH: 6 | STATUS: STANDBY"
         }
     }
 
