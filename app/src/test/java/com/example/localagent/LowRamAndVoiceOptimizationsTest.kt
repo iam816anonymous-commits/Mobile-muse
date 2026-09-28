@@ -1,12 +1,14 @@
 package com.example.localagent
 
 import com.example.localagent.engine.ObstacleDetector
+import com.example.localagent.engine.UniversalNavigator
 import com.example.localagent.memory.ActionRule
 import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.KnowledgeLedger
 import com.example.localagent.memory.RuleLedger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -36,11 +38,9 @@ class LowRamAndVoiceOptimizationsTest {
             )
         }
 
-        // Action rule for fp_350 should exist
         val found = ledger.getActionRule("fp_350", "goal_350")
         assertTrue("Latest entry should be retained", found != null)
 
-        // Oldest action rule fp_1 should have been dropped due to FIFO cap of 300
         val dropped = ledger.getActionRule("fp_1", "goal_1")
         assertTrue("First entry (fp_1) should be dropped by FIFO cap", dropped == null)
     }
@@ -63,5 +63,12 @@ class LowRamAndVoiceOptimizationsTest {
         assertTrue("ObstacleDetector should match 'allow'", ObstacleDetector.isObstacleNode("Allow permissions", null))
         assertTrue("ObstacleDetector should match 'cancel'", ObstacleDetector.isObstacleNode("Cancel", null))
         assertFalse("ObstacleDetector should not match normal text", ObstacleDetector.isObstacleNode("Search Google", null))
+    }
+
+    @Test
+    fun testUniversalNavigatorScanNullNode() {
+        val nodes = UniversalNavigator.scanActionableNodes(null)
+        assertNotNull(nodes)
+        assertTrue(nodes.isEmpty())
     }
 }

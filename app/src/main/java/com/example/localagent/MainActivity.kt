@@ -1,16 +1,20 @@
 package com.example.localagent
 
+import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -21,28 +25,64 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.example.localagent.engine.DiagnosticRunner
 import com.example.localagent.inventory.AppInventoryManager
+import com.example.localagent.memory.KnowledgeLedger
 import com.example.localagent.memory.RuleLedger
 import com.example.localagent.receiver.GoalDispatcher
 import com.example.localagent.voice.VoiceCommandManager
+import com.example.localagent.voice.VoiceEngine
 import java.io.File
 
 open class MainActivity : Activity() {
 
-    private lateinit var tvStatusBadge: TextView
     private lateinit var tvAccessibilityBadge: TextView
     private lateinit var tvOverlayBadge: TextView
+    private lateinit var tvBatteryBadge: TextView
+    private lateinit var tvAudioBadge: TextView
+
+    private lateinit var tvRamMetric: TextView
+    private lateinit var tvKnowledgeMetric: TextView
+    private lateinit var tvStatusMetric: TextView
+
     private lateinit var etGoalInput: EditText
     private lateinit var tvTerminalLog: TextView
     private lateinit var svTerminal: ScrollView
-    private lateinit var tvMetricsBar: TextView
-    private lateinit var tvInventoryLedger: TextView
 
-    private var voiceCommandManager: VoiceCommandManager? = null
+    private var voiceEngine: VoiceEngine? = null
     private val telemetryLogs = StringBuilder()
     private var telemetryReceiver: BroadcastReceiver? = null
 
+    companion object {
+        private const val PERMISSION_REQUEST_RECORD_AUDIO = 1001
+
+        fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
+            val expectedComponentName = "${context.packageName}/${serviceClass.name}"
+            val enabledServicesSetting = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+
+            val components = enabledServicesSetting.split(":")
+            for (component in components) {
+                val trimmed = component.trim()
+                if (trimmed.equals(expectedComponentName, ignoreCase = true) ||
+                    trimmed.equals("${context.packageName}/.${serviceClass.simpleName}", ignoreCase = true)
+                ) {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        voiceEngine = VoiceEngine(this)
+
+        val mainScrollView = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#0A0E17"))
+            isFillViewport = true
+        }
 
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -52,7 +92,7 @@ open class MainActivity : Activity() {
 
         // Header
         val headerText = TextView(this).apply {
-            text = "LOCALAGENT :: JARVIS TELEMETRY DECK"
+            text = "JARVIS MISSION CONTROL :: LOCALAGENT"
             textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#00F0FF"))
@@ -60,55 +100,171 @@ open class MainActivity : Activity() {
             setPadding(0, 0, 0, 16)
         }
 
-        // System Status Header Badges
-        val badgeContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, 0, 0, 24)
-        }
-
-        tvStatusBadge = TextView(this).apply {
-            text = "SYSTEM: STANDBY"
+        // Section A: System Clearance & Permission Manager
+        val permTitle = TextView(this).apply {
+            text = "SECTION A: SYSTEM CLEARANCE & PERMISSIONS"
             textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            background = createBadgeDrawable(Color.parseColor("#334155"))
-            setPadding(20, 10, 20, 10)
-        }
-
-        tvAccessibilityBadge = TextView(this).apply {
-            text = "ACCESSIBILITY: OFF"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            background = createBadgeDrawable(Color.parseColor("#475569"))
-            setPadding(20, 10, 20, 10)
-        }
-
-        tvOverlayBadge = TextView(this).apply {
-            text = "OVERLAY: OFF"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            background = createBadgeDrawable(Color.parseColor("#475569"))
-            setPadding(20, 10, 20, 10)
-        }
-
-        badgeContainer.addView(tvStatusBadge)
-        badgeContainer.addView(tvAccessibilityBadge)
-        badgeContainer.addView(tvOverlayBadge)
-
-        // Manual Engagement Deck
-        val deckTitle = TextView(this).apply {
-            text = "MANUAL TACTICAL ENGAGEMENT"
-            textSize = 13f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#00F0FF"))
             setPadding(0, 8, 0, 8)
         }
 
+        val permGridRow1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 8)
+        }
+
+        tvAccessibilityBadge = createBadgeView("ACCESSIBILITY: [REQUIRED]")
+        val btnAccessSettings = Button(this).apply {
+            text = "Grant Acc."
+            textSize = 11f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#334155"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
+            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }
+        val accessContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 4 }
+            addView(tvAccessibilityBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+            addView(btnAccessSettings)
+        }
+
+        tvOverlayBadge = createBadgeView("OVERLAY: [REQUIRED]")
+        val btnOverlaySettings = Button(this).apply {
+            text = "Grant HUD"
+            textSize = 11f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#334155"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                }
+            }
+        }
+        val overlayContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
+            addView(tvOverlayBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+            addView(btnOverlaySettings)
+        }
+
+        permGridRow1.addView(accessContainer)
+        permGridRow1.addView(overlayContainer)
+
+        val permGridRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        tvBatteryBadge = createBadgeView("BATTERY: [REQUIRED]")
+        val btnBatterySettings = Button(this).apply {
+            text = "Whitelist"
+            textSize = 11f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#334155"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    }
+                }
+            }
+        }
+        val batteryContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 4 }
+            addView(tvBatteryBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+            addView(btnBatterySettings)
+        }
+
+        tvAudioBadge = createBadgeView("AUDIO: [REQUIRED]")
+        val btnAudioSettings = Button(this).apply {
+            text = "Grant Mic"
+            textSize = 11f
+            setTextColor(Color.parseColor("#00F0FF"))
+            background = createBorderDrawable(Color.parseColor("#334155"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), PERMISSION_REQUEST_RECORD_AUDIO)
+                }
+            }
+        }
+        val audioContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
+            addView(tvAudioBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+            addView(btnAudioSettings)
+        }
+
+        permGridRow2.addView(batteryContainer)
+        permGridRow2.addView(audioContainer)
+
+        // Section B: Hardware & Memory Vitals Bar
+        val vitalsTitle = TextView(this).apply {
+            text = "SECTION B: HARDWARE & MEMORY VITALS"
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#39FF14"))
+            setPadding(0, 8, 0, 8)
+        }
+
+        val vitalsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#111625"))
+            setPadding(16, 16, 16, 16)
+        }
+
+        tvRamMetric = TextView(this).apply {
+            text = "RAM BUDGET\nAvail: --- MB"
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#00F0FF"))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        tvKnowledgeMetric = TextView(this).apply {
+            text = "KNOWLEDGE CACHE\nCached: 0/200"
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#39FF14"))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        tvStatusMetric = TextView(this).apply {
+            text = "ACTIVE STATUS\nIDLE"
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        vitalsRow.addView(tvRamMetric)
+        vitalsRow.addView(tvKnowledgeMetric)
+        vitalsRow.addView(tvStatusMetric)
+
+        // Section C: Mission Engagement Deck
+        val deckTitle = TextView(this).apply {
+            text = "SECTION C: MISSION ENGAGEMENT DECK"
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#00F0FF"))
+            setPadding(0, 16, 0, 8)
+        }
+
         etGoalInput = EditText(this).apply {
-            hint = "Enter goal (e.g., 'Ask Gemini how fusion reactors work')"
+            hint = "Enter goal (e.g., 'Ask Gemini about fusion reactors')"
             setHintTextColor(Color.parseColor("#64748B"))
             setTextColor(Color.parseColor("#00F0FF"))
             textSize = 14f
@@ -119,17 +275,15 @@ open class MainActivity : Activity() {
 
         val buttonContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 16, 0, 16)
+            setPadding(0, 12, 0, 16)
         }
 
         val btnEngage = Button(this).apply {
-            text = "[ENGAGE GOAL]"
+            text = "[ENGAGE]"
             setTextColor(Color.parseColor("#0A0E17"))
             typeface = Typeface.DEFAULT_BOLD
             background = createButtonDrawable(Color.parseColor("#00F0FF"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 4
-            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 4 }
             setOnClickListener {
                 val goal = etGoalInput.text.toString().trim()
                 if (goal.isNotEmpty()) {
@@ -137,24 +291,24 @@ open class MainActivity : Activity() {
                         putExtra("goal_text", goal)
                     }
                     sendBroadcast(intent)
-                    appendLog("[SYS] Broadcasted ENGAGE GOAL: '$goal'")
+                    appendLog("[ACT] Broadcasted com.localagent.EXECUTE_GOAL: '$goal'")
+                    voiceEngine?.speak("Engaging goal: $goal")
                 }
             }
         }
 
         val btnVoiceMic = Button(this).apply {
-            text = "🎤 [MIC]"
+            text = "🎤 [VOICE INPUT]"
             setTextColor(Color.parseColor("#0A0E17"))
             typeface = Typeface.DEFAULT_BOLD
             background = createButtonDrawable(Color.parseColor("#39FF14"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.6f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginStart = 4
                 marginEnd = 4
             }
             setOnClickListener {
                 appendLog("[VOICE] Starting push-to-talk speech recognition...")
-                voiceCommandManager = VoiceCommandManager(
-                    this@MainActivity,
+                voiceEngine?.startListening(
                     onResult = { transcribed ->
                         etGoalInput.setText(transcribed)
                         appendLog("[VOICE] Transcribed: '$transcribed'")
@@ -162,27 +316,26 @@ open class MainActivity : Activity() {
                             putExtra("goal_text", transcribed)
                         }
                         sendBroadcast(intent)
+                        voiceEngine?.speak("Engaging transcribed goal")
                     },
                     onError = { err ->
                         appendLog("[VOICE] Speech Error: $err")
                     }
                 )
-                voiceCommandManager?.startListening()
             }
         }
 
         val btnAbort = Button(this).apply {
-            text = "[ABORT ALL]"
+            text = "[EMERGENCY ABORT]"
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
-            background = createButtonDrawable(Color.parseColor("#EF4444"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 4
-            }
+            background = createButtonDrawable(Color.parseColor("#FF0055"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f).apply { marginStart = 4 }
             setOnClickListener {
                 val intent = Intent("com.example.localagent.ACTION_KILL_SWITCH")
                 sendBroadcast(intent)
-                appendLog("[SYS] EMERGENCY ABORT BROADCAST DISPATCHED!")
+                appendLog("[ALERT] EMERGENCY ABORT BROADCAST DISPATCHED!")
+                voiceEngine?.speak("Emergency abort executed")
             }
         }
 
@@ -190,234 +343,141 @@ open class MainActivity : Activity() {
         buttonContainer.addView(btnVoiceMic)
         buttonContainer.addView(btnAbort)
 
-        // Self-Diagnostic Testing Panel Buttons
+        // Section D: Diagnostic & Audit Quick-Actions
         val diagTitle = TextView(this).apply {
-            text = "SELF-DIAGNOSTIC & AUDIT PANEL"
-            textSize = 13f
+            text = "SECTION D: DIAGNOSTIC & AUDIT QUICK-ACTIONS"
+            textSize = 12f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
             setPadding(0, 8, 0, 8)
         }
 
-        val diagRow1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 8)
-        }
-
-        val btnFullTest = Button(this).apply {
-            text = "[1. Full E2E Test]"
-            textSize = 11f
-            setTextColor(Color.parseColor("#39FF14"))
-            background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 4
-            }
-            setOnClickListener {
-                sendBroadcast(Intent(GoalDispatcher.ACTION_RUN_DIAGNOSTIC))
-                appendLog("[DIAG] Triggered [1. Full E2E Test]...")
-            }
-        }
-
-        val btnAppAudit = Button(this).apply {
-            text = "[Full Device Audit]"
-            textSize = 11f
-            setTextColor(Color.parseColor("#39FF14"))
-            background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 4
-            }
-            setOnClickListener {
-                sendBroadcast(Intent(GoalDispatcher.ACTION_RUN_APP_AUDIT))
-                appendLog("[DIAG] Triggered [Full Device Audit]...")
-            }
-        }
-
-        diagRow1.addView(btnFullTest)
-        diagRow1.addView(btnAppAudit)
-
-        val diagRow2 = LinearLayout(this).apply {
+        val diagRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, 16)
         }
 
-        val btnTestSingleApp = Button(this).apply {
-            text = "[Test App Launch]"
+        val btnAppAudit = Button(this).apply {
+            text = "[Run App Inventory Audit]"
             textSize = 11f
             setTextColor(Color.parseColor("#39FF14"))
             background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 4
-            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 4 }
             setOnClickListener {
-                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_APP_LAUNCH))
-                appendLog("[DIAG] Triggered [Test App Launch]...")
-            }
-        }
-
-        val btnTestTypeOnly = Button(this).apply {
-            text = "[Test Typing Only]"
-            textSize = 11f
-            setTextColor(Color.parseColor("#39FF14"))
-            background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 2
-                marginEnd = 2
-            }
-            setOnClickListener {
-                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_TEXT_INJECTION))
-                appendLog("[DIAG] Triggered [Test Typing Only]...")
+                sendBroadcast(Intent(GoalDispatcher.ACTION_RUN_APP_AUDIT))
+                appendLog("[ACT] Triggered [Run App Inventory Audit]...")
             }
         }
 
         val btnTestSwipe = Button(this).apply {
-            text = "[Test Swipe Scroll]"
+            text = "[Test Coordinate Swipe]"
             textSize = 11f
             setTextColor(Color.parseColor("#39FF14"))
             background = createBorderDrawable(Color.parseColor("#16A34A"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 4
-            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 2; marginEnd = 2 }
             setOnClickListener {
                 sendBroadcast(Intent(LocalAgentService.ACTION_TEST_COORDINATE_TAP))
-                appendLog("[DIAG] Triggered [Test Swipe Scroll]...")
+                appendLog("[ACT] Triggered [Test Coordinate Swipe]...")
             }
         }
 
-        diagRow2.addView(btnTestSingleApp)
-        diagRow2.addView(btnTestTypeOnly)
-        diagRow2.addView(btnTestSwipe)
-
-        // Settings Buttons
-        val settingsContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 16)
-        }
-
-        val btnSettings = Button(this).apply {
-            text = "Accessibility Settings"
+        val btnClearCache = Button(this).apply {
+            text = "[Clear Ledger Cache]"
             textSize = 11f
-            setTextColor(Color.parseColor("#00F0FF"))
-            background = createBorderDrawable(Color.parseColor("#334155"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 8
-            }
+            setTextColor(Color.parseColor("#FF0055"))
+            background = createBorderDrawable(Color.parseColor("#FF0055"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 4 }
             setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        }
-
-        val btnOverlay = Button(this).apply {
-            text = "Overlay Settings"
-            textSize = 11f
-            setTextColor(Color.parseColor("#00F0FF"))
-            background = createBorderDrawable(Color.parseColor("#334155"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 8
-            }
-            setOnClickListener {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    val intent = Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                    startActivity(intent)
+                try {
+                    File(filesDir, "knowledge_ledger.json").delete()
+                    File(filesDir, "local_rules.json").delete()
+                    appendLog("[SYS] Flushed ledger caches and memory logs.")
+                    updateDashboardStatus()
+                } catch (e: Exception) {
+                    appendLog("[SYS] Failed to clear ledger: ${e.message}")
                 }
             }
         }
 
-        settingsContainer.addView(btnSettings)
-        settingsContainer.addView(btnOverlay)
+        diagRow.addView(btnAppAudit)
+        diagRow.addView(btnTestSwipe)
+        diagRow.addView(btnClearCache)
 
-        // Memory Metrics Bar
-        tvMetricsBar = TextView(this).apply {
-            text = "RULES LEDGER: 0/300 | MAX DEPTH: 6 | STATUS: READY"
-            textSize = 11f
-            typeface = Typeface.MONOSPACE
-            setTextColor(Color.parseColor("#39FF14"))
-            setPadding(0, 0, 0, 8)
-        }
-
-        // App Inventory Ledger View
-        val inventoryTitle = TextView(this).apply {
-            text = "APP INVENTORY LEDGER CATALOG"
+        // Section E: Real-Time Tactical Stream
+        val terminalTitle = TextView(this).apply {
+            text = "SECTION E: REAL-TIME TACTICAL STREAM"
             textSize = 12f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#00F0FF"))
-            setPadding(0, 4, 0, 4)
-        }
-
-        tvInventoryLedger = TextView(this).apply {
-            text = "Loading App Inventory Catalog...\n"
-            textSize = 11f
-            typeface = Typeface.MONOSPACE
-            setTextColor(Color.parseColor("#94A3B8"))
-            setBackgroundColor(Color.parseColor("#1E293B"))
-            setPadding(16, 16, 16, 16)
-        }
-
-        // Live Tactical Terminal
-        val terminalTitle = TextView(this).apply {
-            text = "LIVE TACTICAL EVENT STREAM"
-            textSize = 13f
-            typeface = Typeface.MONOSPACE
-            setTextColor(Color.parseColor("#39FF14"))
             setPadding(0, 8, 0, 4)
         }
 
         tvTerminalLog = TextView(this).apply {
-            text = "[SYS] Tactical terminal initialized. Ready for operations.\n"
+            text = "[PERM] Core Accessibility engine active\n[SYS] Mission Control dashboard initialized.\n"
             textSize = 11f
             typeface = Typeface.MONOSPACE
-            setTextColor(Color.parseColor("#39FF14"))
+            setTextColor(Color.parseColor("#00F0FF"))
             setBackgroundColor(Color.parseColor("#111625"))
             setPadding(20, 20, 20, 20)
         }
 
+        val terminalPx = (200 * resources.displayMetrics.density).toInt()
         svTerminal = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
+                terminalPx
             )
             addView(tvTerminalLog)
         }
 
         rootLayout.addView(headerText)
-        rootLayout.addView(badgeContainer)
+        rootLayout.addView(permTitle)
+        rootLayout.addView(permGridRow1)
+        rootLayout.addView(permGridRow2)
+        rootLayout.addView(vitalsTitle)
+        rootLayout.addView(vitalsRow)
         rootLayout.addView(deckTitle)
         rootLayout.addView(etGoalInput)
         rootLayout.addView(buttonContainer)
         rootLayout.addView(diagTitle)
-        rootLayout.addView(diagRow1)
-        rootLayout.addView(diagRow2)
-        rootLayout.addView(settingsContainer)
-        rootLayout.addView(tvMetricsBar)
-        rootLayout.addView(inventoryTitle)
-        rootLayout.addView(tvInventoryLedger)
+        rootLayout.addView(diagRow)
         rootLayout.addView(terminalTitle)
         rootLayout.addView(svTerminal)
 
-        setContentView(rootLayout)
+        mainScrollView.addView(rootLayout)
+        setContentView(mainScrollView)
+
         registerTelemetryReceiver()
     }
 
     override fun onResume() {
         super.onResume()
         updateDashboardStatus()
-        refreshAppInventoryLedger()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        voiceCommandManager?.destroyRecognizer()
+        voiceEngine?.shutdown()
         unregisterTelemetryReceiver()
     }
 
+    private fun createBadgeView(defaultText: String): TextView {
+        return TextView(this).apply {
+            text = defaultText
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(12, 10, 12, 10)
+        }
+    }
+
     private fun updateDashboardStatus() {
+        // Section A Badges
         val isAccessEnabled = isAccessibilityServiceEnabled(this, LocalAgentService::class.java)
-        tvAccessibilityBadge.text = if (isAccessEnabled) "ACCESSIBILITY: ON" else "ACCESSIBILITY: OFF"
+        tvAccessibilityBadge.text = if (isAccessEnabled) "ACCESSIBILITY: [ENABLED]" else "ACCESSIBILITY: [REQUIRED]"
         tvAccessibilityBadge.background = createBadgeDrawable(
-            if (isAccessEnabled) Color.parseColor("#16A34A") else Color.parseColor("#DC2626")
+            if (isAccessEnabled) Color.parseColor("#16A34A") else Color.parseColor("#FF0055")
         )
 
         val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -425,39 +485,53 @@ open class MainActivity : Activity() {
         } else {
             true
         }
-        tvOverlayBadge.text = if (hasOverlay) "OVERLAY: ON" else "OVERLAY: OFF"
+        tvOverlayBadge.text = if (hasOverlay) "OVERLAY: [ENABLED]" else "OVERLAY: [REQUIRED]"
         tvOverlayBadge.background = createBadgeDrawable(
-            if (hasOverlay) Color.parseColor("#16A34A") else Color.parseColor("#DC2626")
+            if (hasOverlay) Color.parseColor("#16A34A") else Color.parseColor("#FF0055")
         )
 
-        try {
-            val ruleLedger = RuleLedger(File(filesDir, "local_rules.json"))
-            tvMetricsBar.text = "RULES LEDGER: LOADED (MAX 300) | MAX DEPTH: 6 | STATUS: ONLINE"
-        } catch (e: Exception) {
-            tvMetricsBar.text = "RULES LEDGER: 0/300 | MAX DEPTH: 6 | STATUS: STANDBY"
+        val isBatteryWhitelisted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.isIgnoringBatteryOptimizations(packageName) ?: false
+        } else {
+            true
         }
-    }
+        tvBatteryBadge.text = if (isBatteryWhitelisted) "BATTERY: [ENABLED]" else "BATTERY: [REQUIRED]"
+        tvBatteryBadge.background = createBadgeDrawable(
+            if (isBatteryWhitelisted) Color.parseColor("#16A34A") else Color.parseColor("#FF0055")
+        )
 
-    private fun refreshAppInventoryLedger() {
-        try {
-            val inventoryManager = AppInventoryManager(this)
-            val profiles = inventoryManager.scanDeviceApps()
-            val sb = StringBuilder()
-            profiles.take(6).forEach { p ->
-                val badges = StringBuilder().apply {
-                    if (p.launchable) append("[LAUNCH] ")
-                    if (p.hasEditableInput) append("[TYPE] ")
-                    if (p.supportsScroll) append("[SCROLL] ")
-                }.toString().trim()
-                sb.append("• ").append(p.appName).append(" ").append(badges.ifEmpty { "[FOUND]" }).append("\n")
-            }
-            if (profiles.size > 6) {
-                sb.append("... and ").append(profiles.size - 6).append(" more installed apps.")
-            }
-            tvInventoryLedger.text = sb.toString().trim()
-        } catch (e: Exception) {
-            tvInventoryLedger.text = "Inventory catalog pending scan."
+        val hasAudio = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
         }
+        tvAudioBadge.text = if (hasAudio) "AUDIO: [ENABLED]" else "AUDIO: [REQUIRED]"
+        tvAudioBadge.background = createBadgeDrawable(
+            if (hasAudio) Color.parseColor("#16A34A") else Color.parseColor("#FF0055")
+        )
+
+        // Section B Hardware Vitals
+        try {
+            val memoryInfo = ActivityManager.MemoryInfo()
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            am?.getMemoryInfo(memoryInfo)
+            val availMb = memoryInfo.availMem / (1024 * 1024)
+            tvRamMetric.text = "RAM BUDGET\nAvail: $availMb MB"
+            appendLog("[RAM] Free memory: $availMb MB (Safe)")
+        } catch (e: Exception) {
+            tvRamMetric.text = "RAM BUDGET\nAvail: --- MB"
+        }
+
+        try {
+            val kLedger = KnowledgeLedger(File(filesDir, "knowledge_ledger.json"))
+            val count = kLedger.getEntries().size
+            tvKnowledgeMetric.text = "KNOWLEDGE CACHE\nCached: $count/200"
+        } catch (e: Exception) {
+            tvKnowledgeMetric.text = "KNOWLEDGE CACHE\nCached: 0/200"
+        }
+
+        tvStatusMetric.text = "ACTIVE STATUS\nIDLE"
     }
 
     fun appendLog(logLine: String) {
@@ -478,14 +552,15 @@ open class MainActivity : Activity() {
                             if (entry != null) appendLog(entry)
                         }
                         LocalAgentService.ACTION_GOAL_COMPLETED -> {
-                            val goal = intent.getStringExtra(LocalAgentService.EXTRA_GOAL_TEXT)
                             val status = intent.getStringExtra(LocalAgentService.EXTRA_STATUS)
                             val result = intent.getStringExtra(LocalAgentService.EXTRA_RESULT_DATA)
-                            appendLog("[EXTRACT] Goal Completed [$status]: $result")
+                            appendLog("[SCRAPE] Extracted: '$result' [$status]")
+                            if (status == "SUCCESS" && !result.isNull_or_blank()) {
+                                voiceEngine?.speak("Extracted result: $result")
+                            }
                         }
                         DiagnosticRunner.ACTION_AUDIT_COMPLETED -> {
-                            appendLog("[AUDIT] Full Device Application Audit Finished!")
-                            refreshAppInventoryLedger()
+                            appendLog("[AUDIT] Application audit complete.")
                         }
                     }
                 }
@@ -539,24 +614,7 @@ open class MainActivity : Activity() {
         }
     }
 
-    companion object {
-        fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
-            val expectedComponentName = "${context.packageName}/${serviceClass.name}"
-            val enabledServicesSetting = Settings.Secure.getString(
-                context.contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            ) ?: return false
-
-            val components = enabledServicesSetting.split(":")
-            for (component in components) {
-                val trimmed = component.trim()
-                if (trimmed.equals(expectedComponentName, ignoreCase = true) ||
-                    trimmed.equals("${context.packageName}/.${serviceClass.simpleName}", ignoreCase = true)
-                ) {
-                    return true
-                }
-            }
-            return false
-        }
+    private fun String?.isNull_or_blank(): Boolean {
+        return this == null || this.trim().isEmpty()
     }
 }
