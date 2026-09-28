@@ -19,7 +19,7 @@ object IntentContractBridge {
             val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
                 putExtra(AlarmClock.EXTRA_LENGTH, seconds)
                 putExtra(AlarmClock.EXTRA_MESSAGE, "LocalAgent Timer")
-                putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                putExtra(AlarmClock.EXTRA_SKIP_UI, false) // Visually opens Clock app!
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             try {
@@ -39,7 +39,7 @@ object IntentContractBridge {
                 putExtra(AlarmClock.EXTRA_HOUR, hour)
                 putExtra(AlarmClock.EXTRA_MINUTES, minute)
                 putExtra(AlarmClock.EXTRA_MESSAGE, "LocalAgent Alarm")
-                putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                putExtra(AlarmClock.EXTRA_SKIP_UI, false) // Visually opens Clock app!
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             try {

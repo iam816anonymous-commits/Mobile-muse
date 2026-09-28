@@ -6,37 +6,12 @@ import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.LocalAgentService
+import com.example.localagent.engine.AppIndexer
+import com.example.localagent.engine.AppLauncher
+import com.example.localagent.engine.GenericUIOperator
 import com.example.localagent.voice.VoiceEngine
 
 class CalculatorSkill(private val service: LocalAgentService) {
-
-    fun evaluateExpression(input: String): String {
-        val sanitized = sanitizeExpression(input)
-        val tokens = sanitized.replace("x", "*").replace("÷", "/")
-        return try {
-            val parts = tokens.split(Regex("(?<=[+\\-*/])|(?=[+\\-*/])")).map { it.trim() }.filter { it.isNotEmpty() }
-            if (parts.size >= 3) {
-                var acc = parts[0].toDouble()
-                var i = 1
-                while (i < parts.size - 1) {
-                    val op = parts[i]
-                    val nextVal = parts[i + 1].toDouble()
-                    when (op) {
-                        "+" -> acc += nextVal
-                        "-" -> acc -= nextVal
-                        "*" -> acc *= nextVal
-                        "/" -> if (nextVal != 0.0) acc /= nextVal
-                    }
-                    i += 2
-                }
-                if (acc == acc.toLong().toDouble()) acc.toLong().toString() else acc.toString()
-            } else {
-                sanitized
-            }
-        } catch (e: Exception) {
-            sanitized
-        }
-    }
 
     companion object {
         private const val TAG = "CalculatorSkill"
@@ -49,87 +24,93 @@ class CalculatorSkill(private val service: LocalAgentService) {
                 .replace("compute", "")
                 .replace("sum", "")
                 .trim()
-            val matches = Regex("[0-9+\\-*/=.]+").findAll(cleaned).map { it.value }.joinToString("")
+            val matches = Regex("[0-9+\\-*/=.^%]+").findAll(cleaned).map { it.value }.joinToString("")
             return matches.ifEmpty { "1+1" }
         }
     }
 
-    fun executeCalculation(expression: String, voiceEngine: VoiceEngine? = null) {
+    fun executeCalculation(expression: String, voiceSynthesizer: com.example.localagent.voice.VoiceSynthesizer? = null) {
         val sanitized = sanitizeExpression(expression)
-        val intent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_APP_CALCULATOR)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            service.startActivity(intent)
-        } catch (e: Exception) {
-            Log.w(TAG, "Standard calculator intent failed, resolving via package manager", e)
-        }
 
-        val tokens = sanitized.toCharArray().map { it.toString() }
+        // Step A: Launch installed Calculator app
+        val calcPkg = AppIndexer.resolveAppByQuery(service, "calc") ?: "com.android.calculator2"
+        service.broadcastTelemetryLog("CALC", "Launching real calculator app ($calcPkg)...")
+        AppLauncher.launchApp(service, calcPkg)
+
         val handler = Handler(Looper.getMainLooper())
 
-        tokens.forEachIndexed { index, token ->
-            handler.postDelayed({
+        // Step B: Poll until rootInActiveWindow matches calculator package (max 3000ms)
+        var elapsed = 0L
+        val pollInterval = 200L
+        handler.post(object : Runnable {
+            override fun run() {
                 val root = service.getActiveWindowRoot()
-                if (root != null) {
-                    val buttonNode = findButtonForToken(root, token)
-                    if (buttonNode != null) {
-                        try {
-                            service.performClickWithFallback(buttonNode)
-                        } finally {
-                            buttonNode.recycle()
-                        }
-                    }
-                    root.recycle()
+                val currentPkg = root?.packageName?.toString() ?: ""
+                root?.recycle()
+
+                if (currentPkg.lowercase().contains("calc") || elapsed >= 3000L) {
+                    performCalculatorSequence(sanitized, voiceSynthesizer)
+                } else {
+                    elapsed += pollInterval
+                    handler.postDelayed(this, pollInterval)
                 }
-            }, index * 150L)
-        }
-
-        // Tap equals and extract result
-        handler.postDelayed({
-            val root = service.getActiveWindowRoot()
-            if (root != null) {
-                val equalsNode = findButtonForToken(root, "=") ?: findButtonForToken(root, "equals")
-                if (equalsNode != null) {
-                    try {
-                        service.performClickWithFallback(equalsNode)
-                    } finally {
-                        equalsNode.recycle()
-                    }
-                }
-
-                // Asynchronous stabilization poll for result
-                handler.postDelayed({
-                    val pollRoot = service.getActiveWindowRoot()
-                    val resultText = if (pollRoot != null) {
-                        val activePkg = pollRoot.packageName?.toString() ?: ""
-                        val res = extractResultText(pollRoot, activePkg)
-                        pollRoot.recycle()
-                        res
-                    } else ""
-
-                    service.broadcastGoalCompleted(sanitized, "SUCCESS", resultText)
-                    voiceEngine?.speak("Calculated result is $resultText")
-                }, 500L)
-
-                root.recycle()
             }
-        }, tokens.size * 150L + 300L)
+        })
     }
 
-    private fun findButtonForToken(node: AccessibilityNodeInfo?, token: String): AccessibilityNodeInfo? {
-        if (node == null) return null
-        val text = node.text?.toString() ?: ""
-        val desc = node.contentDescription?.toString() ?: ""
+    private fun performCalculatorSequence(expression: String, voiceSynthesizer: com.example.localagent.voice.VoiceSynthesizer?) {
+        val root = service.getActiveWindowRoot() ?: return
+        try {
+            // Step C: Check if expression contains scientific operators (^ or %)
+            if (expression.contains("^") || expression.contains("%")) {
+                val toggleScientificNode = findScientificToggleNode(root)
+                if (toggleScientificNode != null) {
+                    try {
+                        service.performClickWithFallback(toggleScientificNode)
+                        service.broadcastTelemetryLog("CALC", "Toggled scientific keyboard expansion")
+                        try { Thread.sleep(300L) } catch (e: Exception) {}
+                    } finally {
+                        toggleScientificNode.recycle()
+                    }
+                }
+            }
 
-        if ((text == token || desc.contains(token, ignoreCase = true)) && (node.isClickable || node.childCount == 0)) {
+            val tokens = expression.toCharArray().map { it.toString() }
+            GenericUIOperator.sequenceTap(root, tokens, service, 150L)
+            GenericUIOperator.confirmAction(root, listOf("=", "equals"), service)
+
+            // Step D: Extract finalized numeric display matching ^[0-9,.]+$
+            Handler(Looper.getMainLooper()).postDelayed({
+                val pollRoot = service.getActiveWindowRoot()
+                if (pollRoot != null) {
+                    try {
+                        val leafNumbers = GenericUIOperator.harvestLeafText(pollRoot) { text -> text.matches(Regex("^[0-9,.]+$")) }
+                        val resultText = leafNumbers.lastOrNull() ?: extractResultText(pollRoot, pollRoot.packageName?.toString() ?: "")
+                        service.broadcastGoalCompleted(expression, "SUCCESS", resultText)
+                        voiceSynthesizer?.speak("The calculated result is $resultText")
+                    } finally {
+                        pollRoot.recycle()
+                    }
+                }
+            }, 500L)
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun findScientificToggleNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+        val id = node.viewIdResourceName?.lowercase() ?: ""
+
+        if (text == "inv" || text == "adv" || desc.contains("scientific") || desc.contains("advanced") || id.contains("pad_advanced")) {
             return AccessibilityNodeInfo.obtain(node)
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val match = findButtonForToken(child, token)
+            val match = findScientificToggleNode(child)
             child.recycle()
             if (match != null) return match
         }
@@ -146,7 +127,7 @@ class CalculatorSkill(private val service: LocalAgentService) {
         val text = node.text?.toString() ?: ""
         val id = node.viewIdResourceName?.lowercase() ?: ""
         if (id.contains("result_final") || id.contains("result_preview") || id.contains("result") || id.contains("formula")) {
-            if (text.isNotBlank()) return text
+            if (text.isNotBlank() && text.matches(Regex("^[0-9,.]+$"))) return text
         }
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
@@ -154,6 +135,6 @@ class CalculatorSkill(private val service: LocalAgentService) {
             child.recycle()
             if (res.isNotBlank()) return res
         }
-        return text.ifBlank { if (node.childCount == 0 && text.contains(Regex("[0-9]"))) text else "" }
+        return if (node.childCount == 0 && text.matches(Regex("^[0-9,.]+$"))) text else ""
     }
 }

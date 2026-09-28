@@ -75,6 +75,7 @@ open class MainActivity : Activity() {
     private var voiceEngine: VoiceEngine? = null
     private val telemetryLogs = StringBuilder()
     private var telemetryReceiver: BroadcastReceiver? = null
+    private var minimizeReceiver: BroadcastReceiver? = null
 
     companion object {
         fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
@@ -530,6 +531,7 @@ open class MainActivity : Activity() {
         setContentView(mainScrollView)
 
         registerTelemetryReceiver()
+        registerMinimizeReceiver()
         updateSystemStatus()
 
         // Trigger Guided Permission Onboarding Batch
@@ -555,6 +557,36 @@ open class MainActivity : Activity() {
         super.onDestroy()
         voiceEngine?.shutdown()
         unregisterTelemetryReceiver()
+        unregisterMinimizeReceiver()
+    }
+
+    private fun registerMinimizeReceiver() {
+        if (minimizeReceiver == null) {
+            minimizeReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.action == "com.localagent.MINIMIZE_UI") {
+                        try {
+                            moveTaskToBack(true)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
+            val filter = IntentFilter("com.localagent.MINIMIZE_UI")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(minimizeReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(minimizeReceiver, filter)
+            }
+        }
+    }
+
+    private fun unregisterMinimizeReceiver() {
+        minimizeReceiver?.let {
+            try { unregisterReceiver(it) } catch (e: Exception) { e.printStackTrace() }
+            minimizeReceiver = null
+        }
     }
 
     private fun switchTab(tabIndex: Int) {

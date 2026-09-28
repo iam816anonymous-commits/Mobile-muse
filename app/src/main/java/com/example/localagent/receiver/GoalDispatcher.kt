@@ -69,13 +69,11 @@ class GoalDispatcher(
                             }
 
                             // Math Expression Detection
-                            val hasMath = lowerGoal.contains(Regex("(?i)(calculate|compute|\\d+\\s*[*+\\-/x]\\s*\\d+)"))
+                            val hasMath = lowerGoal.contains(Regex("(?i)(calculate|compute|\\d+\\s*[*+\\-/x^%]\\s*\\d+)"))
                             if (hasMath) {
                                 service.broadcastTelemetryLog("MATH", "Math expression detected in goal: '$goalText'")
                                 val calcSkill = com.example.localagent.skills.CalculatorSkill(service)
-                                val calcResult = calcSkill.evaluateExpression(goalText)
-                                service.broadcastTelemetryLog("MATH", "Calculated result: $calcResult")
-                                service.voiceSynthesizer?.speak("The answer is $calcResult")
+                                calcSkill.executeCalculation(goalText, service.voiceSynthesizer)
                                 try { service.stateManager.completeTask() } catch (e: Exception) {}
                                 return@launch
                             }

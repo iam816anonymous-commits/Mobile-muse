@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.LocalAgentService
+import com.example.localagent.engine.AppLauncher
 
 class CameraSkill(private val service: LocalAgentService) {
 
@@ -15,86 +16,95 @@ class CameraSkill(private val service: LocalAgentService) {
     }
 
     fun capturePhoto(useFrontCamera: Boolean = false) {
-        val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        service.startActivity(intent)
-
+        service.isProcessingGoal = true
         val handler = Handler(Looper.getMainLooper())
-        handler.postDelayed({
-            val root = service.getActiveWindowRoot()
-            if (root != null) {
-                try {
-                    if (useFrontCamera) {
-                        val toggleNode = findToggleCameraNode(root)
-                        if (toggleNode != null) {
-                            try {
-                                service.performClickWithFallback(toggleNode)
-                            } finally {
-                                toggleNode.recycle()
-                            }
-                        } else {
-                            // Tecno Camon i Click 720x1440 Display Lens Flip Fallbacks
-                            val metrics = service.resources.displayMetrics
-                            val width = if (metrics.widthPixels <= 0) 720f else metrics.widthPixels.toFloat()
-                            val height = if (metrics.heightPixels <= 0) 1440f else metrics.heightPixels.toFloat()
 
-                            // Position 1: Tecno Camera UI lens flip bottom right (590, 1280)
-                            val flipX1 = if (width == 720f) 590f else width * 0.82f
-                            val flipY1 = if (height == 1440f) 1280f else height * 0.88f
-                            service.gestureExecutor.tap(flipX1, flipY1)
+        // 4-Second Timeout Guard to prevent zombie states
+        val timeoutRunnable = Runnable {
+            Log.w(TAG, "Camera capture photo 4s timeout reached. Unconditionally resetting isProcessingGoal.")
+            service.isProcessingGoal = false
+        }
+        handler.postDelayed(timeoutRunnable, 4000L)
 
-                            // Position 2: Tecno Camera UI top right flip (610, 80)
-                            handler.postDelayed({
-                                val flipX2 = if (width == 720f) 610f else width * 0.85f
-                                val flipY2 = if (height == 1440f) 80f else height * 0.08f
-                                service.gestureExecutor.tap(flipX2, flipY2)
-                            }, 200L)
-
-                            service.broadcastTelemetryLog("ACT", "Camera switch Tecno 720x1440 coordinate fallbacks dispatched")
-                        }
-                    }
-
-                    // 1000ms viewfinder reload delay
-                    handler.postDelayed({
-                        val captureRoot = service.getActiveWindowRoot()
-                        if (captureRoot != null) {
-                            try {
-                                val shutterNode = findShutterButtonNode(captureRoot)
-                                if (shutterNode != null) {
-                                    try {
-                                        service.performClickWithFallback(shutterNode)
-                                        service.broadcastTelemetryLog("ACT", "Camera shutter node triggered")
-                                    } finally {
-                                        shutterNode.recycle()
-                                    }
-                                } else {
-                                    // Attempt 2: Tecno Camon i Click shutter coordinate tap (360, 1280)
-                                    val metrics = service.resources.displayMetrics
-                                    val width = if (metrics.widthPixels <= 0) 720f else metrics.widthPixels.toFloat()
-                                    val height = if (metrics.heightPixels <= 0) 1440f else metrics.heightPixels.toFloat()
-                                    val shutterX = if (width == 720f) 360f else width * 0.50f
-                                    val shutterY = if (height == 1440f) 1280f else height * 0.88f
-                                    service.gestureExecutor.tap(shutterX, shutterY)
-                                    service.broadcastTelemetryLog("ACT", "Tecno camera shutter coordinate tap ($shutterX, $shutterY) dispatched")
-
-                                    // Attempt 3: Hardware Key Event fallback
-                                    handler.postDelayed({
-                                        service.sendBroadcast(Intent(Intent.ACTION_CAMERA_BUTTON))
-                                        service.broadcastTelemetryLog("ACT", "Dispatched KEYCODE_CAMERA broadcast fallback")
-                                    }, 200L)
-                                }
-                            } finally {
-                                captureRoot.recycle()
-                            }
-                        }
-                    }, 1000L)
-
-                } finally {
-                    root.recycle()
+        try {
+            val cameraPkg = "com.android.camera"
+            val launched = AppLauncher.launchApp(service, cameraPkg)
+            if (!launched) {
+                val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
+                service.startActivity(intent)
             }
-        }, 1000L)
+
+            handler.postDelayed({
+                val root = service.getActiveWindowRoot()
+                if (root != null) {
+                    try {
+                        if (useFrontCamera) {
+                            val toggleNode = findToggleCameraNode(root)
+                            if (toggleNode != null) {
+                                try {
+                                    service.performClickWithFallback(toggleNode)
+                                } finally {
+                                    toggleNode.recycle()
+                                }
+                            } else {
+                                // Tecno Camon i Click 720x1440 Display Lens Flip Fallbacks
+                                val metrics = service.resources.displayMetrics
+                                val width = if (metrics.widthPixels <= 0) 720f else metrics.widthPixels.toFloat()
+                                val height = if (metrics.heightPixels <= 0) 1440f else metrics.heightPixels.toFloat()
+
+                                val flipX = if (width == 720f) 590f else width * 0.82f
+                                val flipY = if (height == 1440f) 1280f else height * 0.88f
+                                service.gestureExecutor.tap(flipX, flipY)
+                                service.broadcastTelemetryLog("ACT", "Camera switch coordinate tap ($flipX, $flipY) dispatched")
+                            }
+                        }
+
+                        // Shutter Trigger (360, 1280 or 0.50f, 0.88f)
+                        handler.postDelayed({
+                            val captureRoot = service.getActiveWindowRoot()
+                            if (captureRoot != null) {
+                                try {
+                                    val shutterNode = findShutterButtonNode(captureRoot)
+                                    if (shutterNode != null) {
+                                        try {
+                                            service.performClickWithFallback(shutterNode)
+                                            service.broadcastTelemetryLog("ACT", "Camera shutter node triggered")
+                                        } finally {
+                                            shutterNode.recycle()
+                                        }
+                                    } else {
+                                        val metrics = service.resources.displayMetrics
+                                        val width = if (metrics.widthPixels <= 0) 720f else metrics.widthPixels.toFloat()
+                                        val height = if (metrics.heightPixels <= 0) 1440f else metrics.heightPixels.toFloat()
+                                        val shutterX = if (width == 720f) 360f else width * 0.50f
+                                        val shutterY = if (height == 1440f) 1280f else height * 0.88f
+                                        service.gestureExecutor.tap(shutterX, shutterY)
+                                        service.broadcastTelemetryLog("ACT", "Tecno camera shutter coordinate tap ($shutterX, $shutterY) dispatched")
+
+                                        handler.postDelayed({
+                                            service.sendBroadcast(Intent(Intent.ACTION_CAMERA_BUTTON))
+                                        }, 150L)
+                                    }
+                                } finally {
+                                    captureRoot.recycle()
+                                }
+                            }
+                        }, 800L)
+
+                    } finally {
+                        root.recycle()
+                    }
+                }
+            }, 800L)
+
+        } finally {
+            handler.postDelayed({
+                handler.removeCallbacks(timeoutRunnable)
+                service.isProcessingGoal = false
+            }, 3500L)
+        }
     }
 
     private fun findToggleCameraNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {

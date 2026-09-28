@@ -46,8 +46,10 @@ object AppAuditManager {
                 continue
             }
 
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             try {
+                // Minimize MainActivity so audited app takes full foreground
+                service.sendBroadcast(Intent("com.localagent.MINIMIZE_UI"))
                 service.startActivity(launchIntent)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to launch app $pkgName", e)
