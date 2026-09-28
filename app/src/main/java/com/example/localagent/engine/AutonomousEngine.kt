@@ -23,13 +23,13 @@ object AutonomousEngine {
     private val fingerprintRingBuffer = ArrayDeque<String>(3)
 
     fun processCurrentScreen(service: LocalAgentService, goalText: String) {
-        // Enforce 25s hard timeout
+        // Enforce strict 20s hard execution timeout
         runBlocking {
-            withTimeoutOrNull(25_000L) {
+            withTimeoutOrNull(20_000L) {
                 processCurrentScreenInternal(service, goalText)
             } ?: run {
-                Log.w(TAG, "Task execution timed out (25s limit). Returning to IDLE.")
-                service.broadcastTelemetryLog("WARN", "Task execution timed out (25s limit). Returning to IDLE.")
+                Log.w(TAG, "Task execution timed out (20s limit). Returning to IDLE.")
+                service.broadcastTelemetryLog("WARN", "Task execution timed out (20s limit). Returning to IDLE.")
                 service.voiceSynthesizer?.speak("Task execution timed out. Returning to standing by.")
                 service.stateManager.reset()
             }
@@ -37,7 +37,7 @@ object AutonomousEngine {
     }
 
     private fun processCurrentScreenInternal(service: LocalAgentService, goalText: String) {
-        // Enforce strict step count limit <= 10
+        // Enforce strict 10-step circuit breaker limit
         val currentStep = service.stateManager.getCurrentState().currentStepIndex
         if (currentStep >= 10) {
             Log.w(TAG, "Strict step limit reached ($currentStep >= 10). Aborting to prevent infinite loop.")
@@ -157,13 +157,19 @@ object AutonomousEngine {
         val lowerGoal = goalText.lowercase()
         if (lowerGoal.contains("open gemini") || lowerGoal.contains("ask gemini")) {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://gemini.google.com")).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                putExtra("com.android.chrome.prefer_new", true)
+                putExtra("create_new_tab", true)
+                putExtra("Intent.EXTRA_CREATE_NEW_TAB", true)
             }
             service.startActivity(intent)
             service.broadcastTelemetryLog("NAV", "Navigated Chrome to https://gemini.google.com")
         } else if (lowerGoal.contains("open chatgpt") || lowerGoal.contains("ask chatgpt")) {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://chatgpt.com")).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                putExtra("com.android.chrome.prefer_new", true)
+                putExtra("create_new_tab", true)
+                putExtra("Intent.EXTRA_CREATE_NEW_TAB", true)
             }
             service.startActivity(intent)
             service.broadcastTelemetryLog("NAV", "Navigated Chrome to https://chatgpt.com")
