@@ -4,8 +4,11 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
@@ -23,8 +26,14 @@ class DeviceToolsManager(private val service: LocalAgentService) {
             try {
                 val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
                     val chars = cameraManager.getCameraCharacteristics(id)
+                    val facing = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                    val flashAvailable = chars.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                    facing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK && flashAvailable
+                } ?: cameraManager.cameraIdList.firstOrNull { id ->
+                    val chars = cameraManager.getCameraCharacteristics(id)
                     chars.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
                 }
+
                 if (cameraId != null) {
                     cameraManager.setTorchMode(cameraId, enable)
                     service.broadcastTelemetryLog("TOOLS", "Hardware Flashlight set to: $enable")
@@ -52,6 +61,23 @@ class DeviceToolsManager(private val service: LocalAgentService) {
                 root.recycle()
             }
         }, 500L)
+    }
+
+    fun triggerHaptic(durationMs: Long = 150L) {
+        try {
+            val vibrator = service.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            if (vibrator != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(durationMs)
+                }
+                service.broadcastTelemetryLog("TOOLS", "Triggered haptic vibration ($durationMs ms)")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to trigger haptic vibration", e)
+        }
     }
 
     fun openAndToggleSetting(settingType: String) {

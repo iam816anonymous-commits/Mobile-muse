@@ -5,7 +5,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
-import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.LocalAgentService
 
@@ -37,14 +36,30 @@ class CameraSkill(private val service: LocalAgentService) {
                         } else {
                             // OEM Coordinate Fallback Strategy B
                             val metrics = service.resources.displayMetrics
-                            val topRightX = metrics.widthPixels * 0.85f
-                            val topRightY = metrics.heightPixels * 0.08f
-                            service.gestureExecutor.tap(topRightX, topRightY)
-                            service.broadcastTelemetryLog("ACT", "Camera switch OEM coordinate fallback tapped")
+                            val width = metrics.widthPixels.toFloat()
+                            val height = metrics.heightPixels.toFloat()
+
+                            // Position 1: Top right
+                            service.gestureExecutor.tap(width * 0.85f, height * 0.08f)
+
+                            // Position 2: Bottom right near shutter
+                            handler.postDelayed({
+                                service.gestureExecutor.tap(width * 0.82f, height * 0.88f)
+                            }, 200L)
+
+                            // Position 3: Double tap center
+                            handler.postDelayed({
+                                service.gestureExecutor.tap(width * 0.5f, height * 0.5f)
+                                handler.postDelayed({
+                                    service.gestureExecutor.tap(width * 0.5f, height * 0.5f)
+                                }, 100L)
+                            }, 400L)
+
+                            service.broadcastTelemetryLog("ACT", "Camera switch OEM coordinate fallbacks dispatched")
                         }
                     }
 
-                    // Viewfinder reload delay
+                    // 1000ms viewfinder reload delay
                     handler.postDelayed({
                         val captureRoot = service.getActiveWindowRoot()
                         if (captureRoot != null) {
@@ -58,9 +73,9 @@ class CameraSkill(private val service: LocalAgentService) {
                                         shutterNode.recycle()
                                     }
                                 } else {
-                                    // Attempt 2: Fixed bottom center coordinate tap
+                                    // Attempt 2: Fixed bottom center coordinate tap (0.50f, 0.88f)
                                     val metrics = service.resources.displayMetrics
-                                    val centerX = metrics.widthPixels * 0.5f
+                                    val centerX = metrics.widthPixels * 0.50f
                                     val bottomY = metrics.heightPixels * 0.88f
                                     service.gestureExecutor.tap(centerX, bottomY)
                                     service.broadcastTelemetryLog("ACT", "Camera shutter bottom-center coordinate tap dispatched")
@@ -75,7 +90,7 @@ class CameraSkill(private val service: LocalAgentService) {
                                 captureRoot.recycle()
                             }
                         }
-                    }, 800L)
+                    }, 1000L)
 
                 } finally {
                     root.recycle()
@@ -88,7 +103,7 @@ class CameraSkill(private val service: LocalAgentService) {
         if (node == null) return null
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
         val id = node.viewIdResourceName?.lowercase() ?: ""
-        if (desc.contains("switch") || desc.contains("flip") || desc.contains("front") || desc.contains("rear") || desc.contains("facing") ||
+        if (desc.contains("switch") || desc.contains("flip") || desc.contains("front") || desc.contains("rear") || desc.contains("facing") || desc.contains("camera toggle") ||
             id.contains("switch") || id.contains("flip") || id.contains("front")
         ) {
             return AccessibilityNodeInfo.obtain(node)
