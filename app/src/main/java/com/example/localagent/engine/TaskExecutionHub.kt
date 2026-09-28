@@ -61,10 +61,10 @@ object TaskExecutionHub {
             return true
         }
 
-        // 7. Gallery Browsing & Deletion
-        if (lowerGoal.contains("gallery") || lowerGoal.contains("photo") || lowerGoal.contains("picture") && (lowerGoal.contains("next") || lowerGoal.contains("delete") || lowerGoal.contains("swipe"))) {
-            service.broadcastTelemetryLog("HUB", "Routed to GalleryAutomation")
-            GalleryAutomation.processGalleryAction(service, rawGoal)
+        // 7. My Picture / Gallery Browsing & Deletion
+        if (lowerGoal.contains("my picture") || lowerGoal.contains("gallery") || lowerGoal.contains("photo") || lowerGoal.contains("picture") || lowerGoal.contains("show pictures")) {
+            service.broadcastTelemetryLog("HUB", "Routed to PhotoViewerAutomation")
+            PhotoViewerAutomation.processPhotoGoal(service, rawGoal)
             return true
         }
 

@@ -66,6 +66,24 @@ object AppIndexer {
             if (cameraApp != null) return cameraApp.packageName
         }
 
+        if (q.contains("gallery") || q.contains("picture") || q.contains("photo") || q.contains("image") || q.contains("my picture")) {
+            val photoApp = apps.find {
+                it.label.contains("my picture") || it.label.contains("ai gallery") ||
+                        it.label.contains("gallery") || it.label.contains("photo") ||
+                        it.packageName.lowercase().contains("gallery") || it.packageName.lowercase().contains("photo")
+            } ?: run {
+                val intent = Intent(Intent.ACTION_VIEW).apply { setType("image/*") }
+                val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+                resolveInfo?.activityInfo?.packageName?.let { pkg ->
+                    apps.find { it.packageName == pkg }
+                }
+            }
+            if (photoApp != null) {
+                saveMediaViewerCapability(context, photoApp.packageName)
+                return photoApp.packageName
+            }
+        }
+
         if (q.contains("browser") || q.contains("chrome") || q.contains("web")) {
             val browserApp = apps.find { it.label.contains("chrome") || it.label.contains("browser") || it.packageName.lowercase().contains("chrome") }
             if (browserApp != null) return browserApp.packageName
@@ -81,6 +99,27 @@ object AppIndexer {
         if (subMatch != null) return subMatch.packageName
 
         return null
+    }
+
+    private fun saveMediaViewerCapability(context: Context, packageName: String) {
+        try {
+            val storageDir = StorageManager.getStorageDirectory()
+            val file = File(storageDir, "app_capabilities.json")
+            val jsonArray = if (file.exists()) {
+                try { JSONArray(file.readText()) } catch (e: Exception) { JSONArray() }
+            } else JSONArray()
+
+            val jsonObj = JSONObject().apply {
+                put("media_viewer", packageName)
+            }
+            jsonArray.put(jsonObj)
+            FileWriter(file, false).use { writer ->
+                writer.write(jsonArray.toString(2))
+            }
+            Log.d(TAG, "Saved media_viewer capability ($packageName) to /Download/LocalAgent/app_capabilities.json")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save media_viewer capability to disk", e)
+        }
     }
 
     private fun saveCapabilitiesToDisk(apps: List<InstalledApp>) {
