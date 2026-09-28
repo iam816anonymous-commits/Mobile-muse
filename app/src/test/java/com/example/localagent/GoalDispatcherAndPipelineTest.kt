@@ -44,6 +44,44 @@ class GoalDispatcherAndPipelineTest {
     }
 
     @Test
+    fun testGoalDispatcher_dispatchesCalculatorSkill() = runTest(testDispatcher) {
+        val mockService = mock(LocalAgentService::class.java)
+        `when`(mockService.stateManager).thenReturn(com.example.localagent.state.TaskStateManager())
+
+        var processedGoal: String? = null
+        val dispatcher = GoalDispatcher(mockService, coroutineScope = testScope) { goal ->
+            processedGoal = goal
+        }
+
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(GoalDispatcher.ACTION_EXECUTE_GOAL)
+        `when`(intent.getStringExtra(GoalDispatcher.EXTRA_GOAL_TEXT)).thenReturn("calculate 45 * 8")
+
+        dispatcher.onReceive(mockService, intent)
+
+        assertEquals("calculate 45 * 8", processedGoal)
+    }
+
+    @Test
+    fun testGoalDispatcher_dispatchesCameraSkill() = runTest(testDispatcher) {
+        val mockService = mock(LocalAgentService::class.java)
+        `when`(mockService.stateManager).thenReturn(com.example.localagent.state.TaskStateManager())
+
+        var processedGoal: String? = null
+        val dispatcher = GoalDispatcher(mockService, coroutineScope = testScope) { goal ->
+            processedGoal = goal
+        }
+
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(GoalDispatcher.ACTION_EXECUTE_GOAL)
+        `when`(intent.getStringExtra(GoalDispatcher.EXTRA_GOAL_TEXT)).thenReturn("take a photo with front camera")
+
+        dispatcher.onReceive(mockService, intent)
+
+        assertEquals("take a photo with front camera", processedGoal)
+    }
+
+    @Test
     fun testAutonomousEngine_parseExpandedActions() {
         val scrollJson = "{\"action\":\"SCROLL\", \"target_text\":\"down\"}"
         val scrollRule = AutonomousEngine.parseAiActionResponse(scrollJson)

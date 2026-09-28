@@ -7,6 +7,8 @@ import android.util.Log
 import com.example.localagent.LocalAgentService
 import com.example.localagent.engine.AppResolver
 import com.example.localagent.engine.DiagnosticRunner
+import com.example.localagent.skills.CalculatorSkill
+import com.example.localagent.skills.CameraSkill
 import com.example.localagent.state.TaskGoal
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +39,24 @@ class GoalDispatcher(
 
                     coroutineScope.launch {
                         service.stateManager.startTask(TaskGoal(id = goalId, description = goalText))
-                        AppResolver.resolveAndLaunch(service, goalText)
+
+                        val lowerGoal = goalText.lowercase().trim()
+                        if (lowerGoal.contains("calculate") || lowerGoal.contains("compute") || lowerGoal.contains("sum")) {
+                            val expression = extractExpression(goalText)
+                            service.broadcastTelemetryLog("SKILL", "Calculator executed: $expression")
+                            val calculatorSkill = CalculatorSkill(service)
+                            calculatorSkill.executeCalculation(expression, service.voiceSynthesizer?.let { null })
+                            service.stateManager.completeTask()
+                        } else if (lowerGoal.contains("photo") || lowerGoal.contains("picture") || lowerGoal.contains("camera")) {
+                            val useFront = lowerGoal.contains("front")
+                            service.broadcastTelemetryLog("SKILL", "Camera photo captured successfully (Front: $useFront)")
+                            val cameraSkill = CameraSkill(service)
+                            cameraSkill.capturePhoto(useFrontCamera = useFront)
+                            service.stateManager.completeTask()
+                        } else {
+                            AppResolver.resolveAndLaunch(service, goalText)
+                        }
+
                         onGoalProcessed?.invoke(goalText)
                     }
                 } else {
@@ -57,5 +76,14 @@ class GoalDispatcher(
                 }
             }
         }
+    }
+
+    private fun extractExpression(goalText: String): String {
+        val keywords = listOf("calculate", "compute", "sum", "and sum", "open calculator and sum")
+        var expr = goalText
+        keywords.forEach { kw ->
+            expr = expr.replace(kw, "", ignoreCase = true)
+        }
+        return expr.trim().ifEmpty { "1+1" }
     }
 }
