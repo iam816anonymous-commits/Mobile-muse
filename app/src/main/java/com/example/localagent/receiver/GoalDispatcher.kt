@@ -108,24 +108,57 @@ class GoalDispatcher(
                                 service.broadcastTelemetryLog("VISION", "Dispatched Google Lens search")
                                 try { service.stateManager.completeTask() } catch (e: Exception) {}
                             } else {
-                                // Compound Intent Extraction & Generic ReAct UI Agent Pipeline
+                            // Autonomous Intent Router & App Discovery
                                 try {
-                                    if (lowerGoal.startsWith("open ")) {
-                                        val subParts = lowerGoal.removePrefix("open ").split(" and ", limit = 2)
-                                        val appTarget = subParts[0].trim()
-                                        service.broadcastTelemetryLog("INTENT", "Compound intent: launching target app '$appTarget'")
-                                        AppResolver.resolveAndLaunch(service, appTarget)
-                                        val subAction = subParts.getOrNull(1)?.trim()
-                                        if (!subAction.isNullOrEmpty()) {
-                                            AutonomousEngine.processCurrentScreen(service, subAction)
+                                var targetAppQuery: String? = null
+                                var remainingAction: String? = null
+
+                                val isExplicitLaunch = lowerGoal.startsWith("open ") || lowerGoal.startsWith("launch ") || lowerGoal.startsWith("start ")
+                                if (isExplicitLaunch) {
+                                    val cleanGoal = lowerGoal.removePrefix("open ").removePrefix("launch ").removePrefix("start ").trim()
+                                    val parts = cleanGoal.split(" and ", limit = 2)
+                                    targetAppQuery = parts[0].trim()
+                                    remainingAction = parts.getOrNull(1)?.trim()
+                                } else {
+                                    targetAppQuery = lowerGoal
+                                    remainingAction = lowerGoal
+                                }
+
+                                val resolvedPackage = com.example.localagent.engine.AppIndexer.resolveAppByQuery(service, targetAppQuery)
+                                if (resolvedPackage != null) {
+                                    val appList = com.example.localagent.engine.AppIndexer.getInstalledApps(service)
+                                    val appLabel = appList.find { it.packageName == resolvedPackage }?.label ?: targetAppQuery
+                                    service.broadcastTelemetryLog("LAUNCH", "Launching $appLabel ($resolvedPackage)")
+                                    service.voiceSynthesizer?.speak("Opening $appLabel")
+
+                                    val launched = com.example.localagent.engine.AppLauncher.launchApp(service, resolvedPackage)
+                                    if (launched) {
+                                        // Poll rootInActiveWindow until the target package is active (max 3000ms)
+                                        var elapsed = 0L
+                                        while (elapsed < 3000L) {
+                                            kotlinx.coroutines.delay(200L)
+                                            elapsed += 200L
+                                            val root = service.getActiveWindowRoot()
+                                            val currentPkg = root?.packageName?.toString()
+                                            root?.recycle()
+                                            if (currentPkg.equals(resolvedPackage, ignoreCase = true)) {
+                                                break
+                                            }
                                         }
+
+                                        if (!remainingAction.isNullOrEmpty() && remainingAction != targetAppQuery) {
+                                            AutonomousEngine.processCurrentScreen(service, remainingAction)
+                                        }
+                                        }
+                                } else if (isExplicitLaunch) {
+                                    service.broadcastTelemetryLog("WARN", "No installed app matched '$targetAppQuery'")
+                                    service.voiceSynthesizer?.speak("I could not find an app for that on your device.")
                                     } else {
-                                        AppResolver.resolveAndLaunch(service, goalText)
                                         AutonomousEngine.processCurrentScreen(service, goalText)
                                     }
                                 } catch (e: Exception) {
-                                    Log.e(TAG, "ReAct execution loop encountered error", e)
-                                    service.broadcastTelemetryLog("WARN", "ReAct loop error: ${e.message}")
+                                Log.e(TAG, "Autonomous intent router encountered error", e)
+                                service.broadcastTelemetryLog("WARN", "Intent router error: ${e.message}")
                                 }
                             }
                         } finally {
