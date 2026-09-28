@@ -9,7 +9,9 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.memory.MemoryLedger
+import com.example.localagent.network.AiBridgeClient
 import com.example.localagent.safety.KillSwitchReceiver
+import com.example.localagent.serializer.ScreenSerializer
 import com.example.localagent.state.TaskStateManager
 import java.io.File
 
@@ -28,6 +30,7 @@ class LocalAgentService : AccessibilityService() {
 
     val stateManager = TaskStateManager(maxStepsLimit = 15)
     lateinit var memoryLedger: MemoryLedger
+    var aiBridgeClient: AiBridgeClient = AiBridgeClient()
     private var killSwitchReceiver: KillSwitchReceiver? = null
 
     override fun onCreate() {
@@ -76,11 +79,42 @@ class LocalAgentService : AccessibilityService() {
             val extractedNodes = mutableListOf<NodeData>()
             traverseAndExtractNode(rootNode, extractedNodes)
             Log.d(TAG, "Extracted ${extractedNodes.size} nodes from active window")
-            memoryLedger.recordStep(
-                stepIndex = stateManager.getCurrentState().currentStepIndex,
-                action = "EXTRACT_NODES",
-                success = true
-            )
+
+            val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
+            val currentGoalDesc = state.goal?.description ?: "Default Goal"
+
+            // Check dynamic rule cache first for offline execution
+            val cachedRule = memoryLedger.getCachedRule(serializedScreen)
+            if (cachedRule != null) {
+                Log.d(TAG, "Found cached rule for screen state. Executing offline: $cachedRule")
+                memoryLedger.recordStep(
+                    stepIndex = stateManager.getCurrentState().currentStepIndex,
+                    action = "OFFLINE_RULE_ACTION: $cachedRule",
+                    success = true
+                )
+            } else {
+                // Query AI Bridge asynchronously if no cached rule exists
+                aiBridgeClient.sendPayloadAsync(serializedScreen, currentGoalDesc) { result ->
+                    result.onSuccess { aiResponse ->
+                        Log.d(TAG, "AI Bridge response received: $aiResponse")
+                        memoryLedger.cacheRule(serializedScreen, aiResponse)
+                        memoryLedger.recordStep(
+                            stepIndex = stateManager.getCurrentState().currentStepIndex,
+                            action = "AI_BRIDGE_ACTION",
+                            success = true
+                        )
+                    }.onFailure { error ->
+                        Log.e(TAG, "AI Bridge request failed", error)
+                        memoryLedger.recordStep(
+                            stepIndex = stateManager.getCurrentState().currentStepIndex,
+                            action = "AI_BRIDGE_ACTION",
+                            success = false,
+                            failureCode = error.message
+                        )
+                    }
+                }
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error traversing node tree", e)
             memoryLedger.recordStep(
