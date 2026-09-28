@@ -113,7 +113,7 @@ open class MainActivity : Activity() {
 
         val buttonContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 16, 0, 24)
+            setPadding(0, 16, 0, 16)
         }
 
         val btnEngage = Button(this).apply {
@@ -154,15 +154,96 @@ open class MainActivity : Activity() {
         buttonContainer.addView(btnEngage)
         buttonContainer.addView(btnAbort)
 
+        // Self-Diagnostic Testing Panel Buttons
+        val diagTitle = TextView(this).apply {
+            text = "SELF-DIAGNOSTIC TESTING PANEL"
+            textSize = 13f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#39FF14"))
+            setPadding(0, 8, 0, 8)
+        }
+
+        val diagRow1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 8)
+        }
+
+        val btnTestAppLaunch = Button(this).apply {
+            text = "[Test App Launch]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_APP_LAUNCH))
+                appendLog("[DIAG] Triggered [Test App Launch]...")
+            }
+        }
+
+        val btnTestNodeDump = Button(this).apply {
+            text = "[Test Node Dump]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_NODE_DUMP))
+                appendLog("[DIAG] Triggered [Test Node Dump]...")
+            }
+        }
+
+        diagRow1.addView(btnTestAppLaunch)
+        diagRow1.addView(btnTestNodeDump)
+
+        val diagRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        val btnTestCoordinateTap = Button(this).apply {
+            text = "[Test Coordinate Tap]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_COORDINATE_TAP))
+                appendLog("[DIAG] Triggered [Test Coordinate Tap]...")
+            }
+        }
+
+        val btnTestTextInjection = Button(this).apply {
+            text = "[Test Text Injection]"
+            textSize = 11f
+            setTextColor(Color.parseColor("#39FF14"))
+            background = createBorderDrawable(Color.parseColor("#16A34A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = 4
+            }
+            setOnClickListener {
+                sendBroadcast(Intent(LocalAgentService.ACTION_TEST_TEXT_INJECTION))
+                appendLog("[DIAG] Triggered [Test Text Injection]...")
+            }
+        }
+
+        diagRow2.addView(btnTestCoordinateTap)
+        diagRow2.addView(btnTestTextInjection)
+
         // Settings Buttons
         val settingsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 24)
+            setPadding(0, 0, 0, 16)
         }
 
         val btnSettings = Button(this).apply {
             text = "Accessibility Settings"
-            textSize = 12f
+            textSize = 11f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -175,7 +256,7 @@ open class MainActivity : Activity() {
 
         val btnOverlay = Button(this).apply {
             text = "Overlay Settings"
-            textSize = 12f
+            textSize = 11f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -201,7 +282,7 @@ open class MainActivity : Activity() {
             textSize = 11f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
-            setPadding(0, 0, 0, 16)
+            setPadding(0, 0, 0, 12)
         }
 
         // Live Tactical Terminal
@@ -210,7 +291,7 @@ open class MainActivity : Activity() {
             textSize = 13f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#39FF14"))
-            setPadding(0, 8, 0, 8)
+            setPadding(0, 4, 0, 4)
         }
 
         tvTerminalLog = TextView(this).apply {
@@ -236,6 +317,9 @@ open class MainActivity : Activity() {
         rootLayout.addView(deckTitle)
         rootLayout.addView(etGoalInput)
         rootLayout.addView(buttonContainer)
+        rootLayout.addView(diagTitle)
+        rootLayout.addView(diagRow1)
+        rootLayout.addView(diagRow2)
         rootLayout.addView(settingsContainer)
         rootLayout.addView(tvMetricsBar)
         rootLayout.addView(terminalTitle)

@@ -2,11 +2,15 @@ package com.example.localagent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
+import android.content.BroadcastReceiver
 import android.content.ComponentCallbacks2
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Rect
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -55,6 +59,11 @@ open class LocalAgentService : AccessibilityService() {
         const val EXTRA_RESULT_DATA = "result_data"
         const val EXTRA_LOG_ENTRY = "log_entry"
 
+        const val ACTION_TEST_APP_LAUNCH = "com.localagent.TEST_APP_LAUNCH"
+        const val ACTION_TEST_NODE_DUMP = "com.localagent.TEST_NODE_DUMP"
+        const val ACTION_TEST_COORDINATE_TAP = "com.localagent.TEST_COORDINATE_TAP"
+        const val ACTION_TEST_TEXT_INJECTION = "com.localagent.TEST_TEXT_INJECTION"
+
         const val MAX_TRAVERSAL_DEPTH = 7
         private const val DOUBLE_PRESS_TIMEOUT_MS = 500L
     }
@@ -67,6 +76,7 @@ open class LocalAgentService : AccessibilityService() {
     lateinit var hudManager: FloatingHudManager
     private var killSwitchReceiver: KillSwitchReceiver? = null
     private var goalDispatcher: GoalDispatcher? = null
+    private var diagnosticReceiver: BroadcastReceiver? = null
     val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val backgroundExecutor = Executors.newSingleThreadScheduledExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -87,6 +97,7 @@ open class LocalAgentService : AccessibilityService() {
 
         registerKillSwitch()
         registerGoalDispatcher()
+        registerDiagnosticReceiver()
     }
 
     override fun onDestroy() {
@@ -94,6 +105,7 @@ open class LocalAgentService : AccessibilityService() {
         hudManager.hide()
         unregisterKillSwitch()
         unregisterGoalDispatcher()
+        unregisterDiagnosticReceiver()
         serviceScope.cancel()
         backgroundExecutor.shutdown()
     }
@@ -117,6 +129,84 @@ open class LocalAgentService : AccessibilityService() {
         sendBroadcast(intent)
         broadcastTelemetryLog("EXTRACT", "Goal Completed [$status]: $resultData")
         Log.d(TAG, "Broadcasted GOAL_COMPLETED: status=$status, result=$resultData")
+    }
+
+    // --- Self-Diagnostic Testing Panel Logic ---
+
+    fun testAppLaunch() {
+        broadcastTelemetryLog("DIAG", "Testing App Launch: Google Chrome...")
+        val launched = IntentLauncher.launchChrome(this)
+        val currentPkg = getActiveWindowRoot()?.packageName?.toString() ?: "unknown"
+        broadcastTelemetryLog("DIAG", "App Launch result: launched=$launched, activePkg=$currentPkg")
+    }
+
+    fun testNodeDump() {
+        broadcastTelemetryLog("DIAG", "Testing Node Dump: Collecting top 5 visible nodes...")
+        val rootNode = getActiveWindowRoot()
+        if (rootNode == null) {
+            broadcastTelemetryLog("DIAG", "Node Dump failed: Active window root is null")
+            return
+        }
+
+        try {
+            val extractedNodes = mutableListOf<NodeData>()
+            traverseAndExtractNode(rootNode, extractedNodes)
+            val top5 = extractedNodes.take(5)
+            broadcastTelemetryLog("DIAG", "Node Dump captured ${top5.size} nodes:")
+            top5.forEachIndexed { idx, node ->
+                val label = node.text ?: node.contentDescription ?: "<no label>"
+                val boundsStr = "${node.boundsInScreen.left},${node.boundsInScreen.top}-${node.boundsInScreen.right},${node.boundsInScreen.bottom}"
+                broadcastTelemetryLog("DIAG", " #$idx: [$label] (${node.className}) at [$boundsStr]")
+            }
+        } finally {
+            rootNode.recycle()
+        }
+    }
+
+    fun testCoordinateTap() {
+        broadcastTelemetryLog("DIAG", "Testing Coordinate Tap at (500, 500)...")
+        gestureExecutor.tap(500f, 500f, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                super.onCompleted(gestureDescription)
+                broadcastTelemetryLog("DIAG", "Coordinate Tap CONFIRMED at (500, 500)")
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                super.onCancelled(gestureDescription)
+                broadcastTelemetryLog("DIAG", "Coordinate Tap CANCELLED at (500, 500)")
+            }
+        })
+    }
+
+    fun testTextInjection() {
+        broadcastTelemetryLog("DIAG", "Testing Text Injection into first editable field...")
+        val rootNode = getActiveWindowRoot()
+        if (rootNode == null) {
+            broadcastTelemetryLog("DIAG", "Text Injection failed: Active window root is null")
+            return
+        }
+
+        try {
+            val editableNode = AutonomousEngine.findEditableNode(rootNode)
+            if (editableNode != null) {
+                try {
+                    val arguments = Bundle().apply {
+                        putCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                            "Diagnostic Sample Text"
+                        )
+                    }
+                    val success = editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                    broadcastTelemetryLog("DIAG", "Text Injection performed: success=$success")
+                } finally {
+                    editableNode.recycle()
+                }
+            } else {
+                broadcastTelemetryLog("DIAG", "Text Injection failed: No editable field found on current screen")
+            }
+        } finally {
+            rootNode.recycle()
+        }
     }
 
     override fun onTrimMemory(level: Int) {
@@ -330,6 +420,43 @@ open class LocalAgentService : AccessibilityService() {
 
     fun runYouTubePlaybackTest(query: String = "Kotlin Android Tutorial"): Boolean {
         return TestRoutines.runYouTubePlaybackTest(this, query)
+    }
+
+    private fun registerDiagnosticReceiver() {
+        if (diagnosticReceiver == null) {
+            diagnosticReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    when (intent?.action) {
+                        ACTION_TEST_APP_LAUNCH -> testAppLaunch()
+                        ACTION_TEST_NODE_DUMP -> testNodeDump()
+                        ACTION_TEST_COORDINATE_TAP -> testCoordinateTap()
+                        ACTION_TEST_TEXT_INJECTION -> testTextInjection()
+                    }
+                }
+            }
+            val filter = IntentFilter().apply {
+                addAction(ACTION_TEST_APP_LAUNCH)
+                addAction(ACTION_TEST_NODE_DUMP)
+                addAction(ACTION_TEST_COORDINATE_TAP)
+                addAction(ACTION_TEST_TEXT_INJECTION)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(diagnosticReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(diagnosticReceiver, filter)
+            }
+        }
+    }
+
+    private fun unregisterDiagnosticReceiver() {
+        diagnosticReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unregistering diagnostic receiver", e)
+            }
+            diagnosticReceiver = null
+        }
     }
 
     private fun registerGoalDispatcher() {
