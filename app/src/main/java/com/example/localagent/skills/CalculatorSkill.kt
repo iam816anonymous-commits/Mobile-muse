@@ -12,9 +12,22 @@ class CalculatorSkill(private val service: LocalAgentService) {
 
     companion object {
         private const val TAG = "CalculatorSkill"
+
+        fun sanitizeExpression(input: String): String {
+            val cleaned = input.lowercase()
+                .replace("calculator", "")
+                .replace("localagent", "")
+                .replace("calculate", "")
+                .replace("compute", "")
+                .replace("sum", "")
+                .trim()
+            val matches = Regex("[0-9+\\-*/=.]+").findAll(cleaned).map { it.value }.joinToString("")
+            return matches.ifEmpty { "1+1" }
+        }
     }
 
     fun executeCalculation(expression: String, voiceEngine: VoiceEngine? = null) {
+        val sanitized = sanitizeExpression(expression)
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_APP_CALCULATOR)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -25,7 +38,7 @@ class CalculatorSkill(private val service: LocalAgentService) {
             Log.w(TAG, "Standard calculator intent failed, resolving via package manager", e)
         }
 
-        val tokens = expression.toCharArray().map { it.toString() }
+        val tokens = sanitized.toCharArray().map { it.toString() }
         val handler = Handler(Looper.getMainLooper())
 
         tokens.forEachIndexed { index, token ->
@@ -58,10 +71,20 @@ class CalculatorSkill(private val service: LocalAgentService) {
                     }
                 }
 
-                // Extract computed result
-                val resultText = extractResultText(root)
-                service.broadcastGoalCompleted(expression, "SUCCESS", resultText)
-                voiceEngine?.speak("Calculated result is $resultText")
+                // Asynchronous stabilization poll for result
+                handler.postDelayed({
+                    val pollRoot = service.getActiveWindowRoot()
+                    val resultText = if (pollRoot != null) {
+                        val activePkg = pollRoot.packageName?.toString() ?: ""
+                        val res = extractResultText(pollRoot, activePkg)
+                        pollRoot.recycle()
+                        res
+                    } else ""
+
+                    service.broadcastGoalCompleted(sanitized, "SUCCESS", resultText)
+                    voiceEngine?.speak("Calculated result is $resultText")
+                }, 500L)
+
                 root.recycle()
             }
         }, tokens.size * 150L + 300L)
@@ -85,19 +108,24 @@ class CalculatorSkill(private val service: LocalAgentService) {
         return null
     }
 
-    private fun extractResultText(node: AccessibilityNodeInfo?): String {
+    private fun extractResultText(node: AccessibilityNodeInfo?, activePkg: String): String {
         if (node == null) return ""
+        val nodePkg = node.packageName?.toString() ?: ""
+        if (activePkg.isNotEmpty() && nodePkg.isNotEmpty() && !nodePkg.equals(activePkg, ignoreCase = true)) {
+            return ""
+        }
+
         val text = node.text?.toString() ?: ""
-        val id = node.viewIdResourceName ?: ""
-        if (id.contains("result", ignoreCase = true) || node.isFocusable) {
+        val id = node.viewIdResourceName?.lowercase() ?: ""
+        if (id.contains("result_final") || id.contains("result_preview") || id.contains("result") || id.contains("formula")) {
             if (text.isNotBlank()) return text
         }
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val res = extractResultText(child)
+            val res = extractResultText(child, activePkg)
             child.recycle()
             if (res.isNotBlank()) return res
         }
-        return text
+        return text.ifBlank { if (node.childCount == 0 && text.contains(Regex("[0-9]"))) text else "" }
     }
 }

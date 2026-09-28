@@ -3,6 +3,7 @@ package com.example.localagent
 import com.example.localagent.inventory.AppCategory
 import com.example.localagent.memory.OperationalMetric
 import com.example.localagent.memory.SelfReflectionEngine
+import com.example.localagent.skills.CalculatorSkill
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -19,6 +20,13 @@ class SkillsAndReflectionTest {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "test_reflection_${System.currentTimeMillis()}")
         tempDir.mkdirs()
         tempFile = File(tempDir, "test_metrics.json")
+    }
+
+    @Test
+    fun testCalculatorSkill_sanitizeExpression() {
+        val raw = "calculate 45 * 8 in calculator"
+        val sanitized = CalculatorSkill.sanitizeExpression(raw)
+        assertEquals("45*8", sanitized)
     }
 
     @Test

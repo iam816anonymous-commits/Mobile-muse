@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.LocalAgentService
 
@@ -20,7 +21,8 @@ class CameraSkill(private val service: LocalAgentService) {
         }
         service.startActivity(intent)
 
-        Handler(Looper.getMainLooper()).postDelayed({
+        val handler = Handler(Looper.getMainLooper())
+        handler.postDelayed({
             val root = service.getActiveWindowRoot()
             if (root != null) {
                 try {
@@ -32,25 +34,49 @@ class CameraSkill(private val service: LocalAgentService) {
                             } finally {
                                 toggleNode.recycle()
                             }
+                        } else {
+                            // OEM Coordinate Fallback Strategy B
+                            val metrics = service.resources.displayMetrics
+                            val topRightX = metrics.widthPixels * 0.85f
+                            val topRightY = metrics.heightPixels * 0.08f
+                            service.gestureExecutor.tap(topRightX, topRightY)
+                            service.broadcastTelemetryLog("ACT", "Camera switch OEM coordinate fallback tapped")
                         }
                     }
 
-                    val shutterNode = findShutterButtonNode(root)
-                    if (shutterNode != null) {
-                        try {
-                            service.performClickWithFallback(shutterNode)
-                            service.broadcastTelemetryLog("ACT", "Camera shutter triggered")
-                        } finally {
-                            shutterNode.recycle()
+                    // Viewfinder reload delay
+                    handler.postDelayed({
+                        val captureRoot = service.getActiveWindowRoot()
+                        if (captureRoot != null) {
+                            try {
+                                val shutterNode = findShutterButtonNode(captureRoot)
+                                if (shutterNode != null) {
+                                    try {
+                                        service.performClickWithFallback(shutterNode)
+                                        service.broadcastTelemetryLog("ACT", "Camera shutter node triggered")
+                                    } finally {
+                                        shutterNode.recycle()
+                                    }
+                                } else {
+                                    // Attempt 2: Fixed bottom center coordinate tap
+                                    val metrics = service.resources.displayMetrics
+                                    val centerX = metrics.widthPixels * 0.5f
+                                    val bottomY = metrics.heightPixels * 0.88f
+                                    service.gestureExecutor.tap(centerX, bottomY)
+                                    service.broadcastTelemetryLog("ACT", "Camera shutter bottom-center coordinate tap dispatched")
+
+                                    // Attempt 3: Hardware Key Event fallback
+                                    handler.postDelayed({
+                                        service.sendBroadcast(Intent(Intent.ACTION_CAMERA_BUTTON))
+                                        service.broadcastTelemetryLog("ACT", "Dispatched KEYCODE_CAMERA broadcast fallback")
+                                    }, 200L)
+                                }
+                            } finally {
+                                captureRoot.recycle()
+                            }
                         }
-                    } else {
-                        // Fallback coordinate tap at screen bottom center
-                        val displayMetrics = service.resources.displayMetrics
-                        val centerX = displayMetrics.widthPixels / 2f
-                        val bottomY = displayMetrics.heightPixels * 0.88f
-                        service.gestureExecutor.tap(centerX, bottomY)
-                        service.broadcastTelemetryLog("ACT", "Camera shutter fallback coordinate tap dispatched")
-                    }
+                    }, 800L)
+
                 } finally {
                     root.recycle()
                 }
@@ -61,7 +87,10 @@ class CameraSkill(private val service: LocalAgentService) {
     private fun findToggleCameraNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-        if (desc.contains("front") || desc.contains("switch camera") || desc.contains("flip") || desc.contains("rear")) {
+        val id = node.viewIdResourceName?.lowercase() ?: ""
+        if (desc.contains("switch") || desc.contains("flip") || desc.contains("front") || desc.contains("rear") || desc.contains("facing") ||
+            id.contains("switch") || id.contains("flip") || id.contains("front")
+        ) {
             return AccessibilityNodeInfo.obtain(node)
         }
         for (i in 0 until node.childCount) {
@@ -77,7 +106,8 @@ class CameraSkill(private val service: LocalAgentService) {
         if (node == null) return null
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
         val text = node.text?.toString()?.lowercase() ?: ""
-        if (desc.contains("shutter") || desc.contains("take photo") || desc.contains("capture") || text.contains("shutter")) {
+        val id = node.viewIdResourceName?.lowercase() ?: ""
+        if (desc.contains("shutter") || desc.contains("take photo") || desc.contains("capture") || text.contains("shutter") || id.contains("shutter")) {
             return AccessibilityNodeInfo.obtain(node)
         }
         for (i in 0 until node.childCount) {
