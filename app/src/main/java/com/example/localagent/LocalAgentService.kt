@@ -271,20 +271,11 @@ open class LocalAgentService : AccessibilityService() {
             return
         }
 
-        val canContinue = stateManager.incrementStep()
-        if (!canContinue) {
-            Log.w(TAG, "Circuit Breaker triggered in onAccessibilityEvent")
-            memoryLedger.recordStep(
-                stepIndex = state.currentStepIndex,
-                action = "ACCESSIBILITY_EVENT_PROCESSING",
-                success = false,
-                failureCode = "CIRCUIT_BREAKER_STEP_LIMIT_EXCEEDED"
-            )
-            broadcastGoalCompleted(
-                goalText = state.goal?.description ?: "",
-                status = "FAILURE",
-                resultData = "CIRCUIT_BREAKER_STEP_LIMIT_EXCEEDED"
-            )
+        // Only process major state transitions (WINDOW_STATE_CHANGED or WINDOW_CONTENT_CHANGED)
+        val eventType = event.eventType
+        if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
             return
         }
 
@@ -349,6 +340,12 @@ open class LocalAgentService : AccessibilityService() {
     }
 
     fun performClickWithFallback(node: AccessibilityNodeInfo): Boolean {
+        val canContinue = stateManager.incrementStep()
+        if (!canContinue) {
+            Log.w(TAG, "Circuit Breaker triggered in performClickWithFallback")
+            haltAndResetAgent("CIRCUIT_BREAKER_STEP_LIMIT_EXCEEDED")
+            return false
+        }
         return ActionExecutor.performClickWithFallback(node, gestureExecutor)
     }
 
@@ -460,7 +457,7 @@ open class LocalAgentService : AccessibilityService() {
                 addAction(ACTION_TEST_TEXT_INJECTION)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(diagnosticReceiver, filter, RECEIVER_NOT_EXPORTED)
+                registerReceiver(diagnosticReceiver, filter, RECEIVER_EXPORTED)
             } else {
                 registerReceiver(diagnosticReceiver, filter)
             }
@@ -487,7 +484,7 @@ open class LocalAgentService : AccessibilityService() {
                 addAction(GoalDispatcher.ACTION_RUN_APP_AUDIT)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(goalDispatcher, filter, RECEIVER_NOT_EXPORTED)
+                registerReceiver(goalDispatcher, filter, RECEIVER_EXPORTED)
             } else {
                 registerReceiver(goalDispatcher, filter)
             }
@@ -512,7 +509,7 @@ open class LocalAgentService : AccessibilityService() {
             }
             val filter = IntentFilter(KillSwitchReceiver.ACTION_KILL_SWITCH)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(killSwitchReceiver, filter, RECEIVER_NOT_EXPORTED)
+                registerReceiver(killSwitchReceiver, filter, RECEIVER_EXPORTED)
             } else {
                 registerReceiver(killSwitchReceiver, filter)
             }

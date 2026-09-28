@@ -9,10 +9,20 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
+data class AgentAction(
+    val action: String,
+    val targetIndex: Int? = null,
+    val inputText: String? = null
+)
+
 class AiBridgeClient(
     private val endpointUrl: String = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
     private val apiKey: String? = null
 ) {
+
+    companion object {
+        const val SYSTEM_PROMPT = "You are an Android OS and mobile web automation brain. Given the USER_GOAL and current SCREEN_ELEMENTS, decide the single next step. Support native apps and mobile web apps (Chrome). Output valid JSON only without markdown fences: {\"action\": \"CLICK\"|\"INPUT\"|\"SCROLL\"|\"COMPLETE\", \"target_index\": Int, \"input_text\": String?}"
+    }
 
     private val executor = Executors.newSingleThreadExecutor()
 
@@ -76,7 +86,7 @@ class AiBridgeClient(
     }
 
     fun buildGeminiRequestBody(serializedScreen: String, goalDescription: String): String {
-        val prompt = "Goal: $goalDescription\nCurrent Screen Nodes JSON:\n$serializedScreen"
+        val prompt = "$SYSTEM_PROMPT\n\nUSER_GOAL: $goalDescription\n\nSCREEN_ELEMENTS:\n$serializedScreen"
         val partObj = JSONObject().apply {
             put("text", prompt)
         }
@@ -92,6 +102,19 @@ class AiBridgeClient(
         return JSONObject().apply {
             put("contents", contentsArray)
         }.toString()
+    }
+
+    fun parseAgentAction(jsonStr: String): AgentAction? {
+        return try {
+            val cleanJson = jsonStr.replace("```json", "").replace("```", "").trim()
+            val obj = JSONObject(cleanJson)
+            val action = obj.optString("action", "CLICK").uppercase()
+            val targetIndex = if (obj.has("target_index") && !obj.isNull("target_index")) obj.getInt("target_index") else null
+            val inputText = if (obj.has("input_text") && !obj.isNull("input_text")) obj.getString("input_text") else null
+            AgentAction(action = action, targetIndex = targetIndex, inputText = inputText)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun String?.isNull_or_blank(): Boolean {

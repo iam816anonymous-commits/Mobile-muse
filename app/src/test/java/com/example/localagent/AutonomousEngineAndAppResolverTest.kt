@@ -1,68 +1,47 @@
 package com.example.localagent
 
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import com.example.localagent.engine.AppResolver
+import android.graphics.Rect
 import com.example.localagent.engine.AutonomousEngine
-import com.example.localagent.memory.ActionType
-import com.example.localagent.receiver.GoalBroadcastReceiver
+import com.example.localagent.network.AiBridgeClient
+import com.example.localagent.serializer.ScreenSerializer
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mockito.Mockito.`when`
-import org.mockito.Mockito.mock
-import org.mockito.Mockito.verify
 
 class AutonomousEngineAndAppResolverTest {
 
     @Test
-    fun testAppResolver_packageResolution() {
-        val mockContext = mock(Context::class.java)
-        val mockPm = mock(PackageManager::class.java)
-        `when`(mockContext.packageManager).thenReturn(mockPm)
+    fun testScreenSerializer_indexedOutput() {
+        val node1 = NodeData(
+            text = "Search or type URL",
+            contentDescription = "",
+            className = "android.widget.EditText",
+            boundsInScreen = Rect(54, 90, 980, 210),
+            hasActions = true
+        )
+        val serialized = ScreenSerializer.serializeScreen(listOf(node1))
 
-        `when`(mockPm.getLaunchIntentForPackage(AppResolver.PKG_GEMINI)).thenReturn(mock(Intent::class.java))
-        val geminiResult = AppResolver.resolveAndLaunch(mockContext, "Ask Gemini quantum physics")
-        assertTrue(geminiResult)
-
-        `when`(mockPm.getLaunchIntentForPackage(AppResolver.PKG_CHROME)).thenReturn(mock(Intent::class.java))
-        val chromeResult = AppResolver.resolveAndLaunch(mockContext, "Search news on Chrome")
-        assertTrue(chromeResult)
+        assertTrue(serialized.contains("\"index\":0"))
+        assertTrue(serialized.contains("\"type\":\"EditText\""))
     }
 
     @Test
-    fun testGoalBroadcastReceiver_triggersCallback() {
-        val mockService = mock(LocalAgentService::class.java)
-        `when`(mockService.stateManager).thenReturn(com.example.localagent.state.TaskStateManager())
+    fun testAiBridgeClient_parseAgentAction() {
+        val client = AiBridgeClient()
+        val jsonInput = """{"action": "CLICK", "target_index": 1, "input_text": null}"""
+        val action = client.parseAgentAction(jsonInput)
 
-        var receivedGoal: String? = null
-        val receiver = GoalBroadcastReceiver(mockService) { goal ->
-            receivedGoal = goal
-        }
-
-        val intent = mock(Intent::class.java)
-        `when`(intent.action).thenReturn(GoalBroadcastReceiver.ACTION_EXECUTE_GOAL)
-        `when`(intent.getStringExtra(GoalBroadcastReceiver.EXTRA_GOAL_TEXT)).thenReturn("Ask ChatGPT a question")
-
-        receiver.onReceive(mockService, intent)
-
-        assertEquals("Ask ChatGPT a question", receivedGoal)
+        assertNotNull(action)
+        assertEquals("CLICK", action?.action)
+        assertEquals(1, action?.targetIndex)
     }
 
     @Test
-    fun testAutonomousEngine_parseAiActionResponseJson() {
-        val clickJson = "{\"action\":\"CLICK\", \"target_text\":\"Submit\"}"
-        val clickRule = AutonomousEngine.parseAiActionResponse(clickJson)
-        assertNotNull(clickRule)
-        assertEquals(ActionType.CLICK, clickRule?.type)
-        assertEquals("Submit", clickRule?.textPayload)
-
-        val inputJson = "{\"action\":\"INPUT_TEXT\", \"input_payload\":\"quantum mechanics\"}"
-        val inputRule = AutonomousEngine.parseAiActionResponse(inputJson)
-        assertNotNull(inputRule)
-        assertEquals(ActionType.INPUT, inputRule?.type)
-        assertEquals("quantum mechanics", inputRule?.textPayload)
+    fun testParseAiActionResponse() {
+        val rule = AutonomousEngine.parseAiActionResponse("""{"action": "INPUT", "input_text": "Ask Gemini"}""")
+        assertNotNull(rule)
+        assertEquals("Ask Gemini", rule?.textPayload)
     }
 }

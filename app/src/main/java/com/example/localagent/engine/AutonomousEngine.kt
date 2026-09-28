@@ -1,6 +1,8 @@
 package com.example.localagent.engine
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
@@ -10,6 +12,7 @@ import com.example.localagent.memory.ActionRule
 import com.example.localagent.memory.ActionType
 import com.example.localagent.memory.MemoryGuard
 import com.example.localagent.memory.ScreenHasher
+import com.example.localagent.network.AgentAction
 import com.example.localagent.serializer.ScreenSerializer
 import org.json.JSONObject
 
@@ -25,6 +28,9 @@ object AutonomousEngine {
             service.haltAndResetAgent("Low RAM Memory Protection Triggered")
             return
         }
+
+        // Check for Web Goal routing first
+        handleWebRoutingIfNeeded(service, goalText)
 
         val rootNode = service.getActiveWindowRoot() ?: return
         try {
@@ -107,25 +113,46 @@ object AutonomousEngine {
         }
     }
 
+    private fun handleWebRoutingIfNeeded(service: LocalAgentService, goalText: String) {
+        val lowerGoal = goalText.lowercase()
+        if (lowerGoal.contains("open gemini") || lowerGoal.contains("ask gemini")) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://gemini.google.com")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            service.startActivity(intent)
+            service.broadcastTelemetryLog("NAV", "Navigated Chrome to https://gemini.google.com")
+        } else if (lowerGoal.contains("open chatgpt") || lowerGoal.contains("ask chatgpt")) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://chatgpt.com")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            service.startActivity(intent)
+            service.broadcastTelemetryLog("NAV", "Navigated Chrome to https://chatgpt.com")
+        }
+    }
+
     fun parseAiActionResponse(jsonStr: String): ActionRule? {
         return try {
-            val obj = JSONObject(jsonStr)
+            val cleanJson = jsonStr.replace("```json", "").replace("```", "").trim()
+            val obj = JSONObject(cleanJson)
             val actionName = obj.optString("action", "CLICK").uppercase()
-            val targetText = if (obj.has("target_text") && !obj.isNull("target_text")) obj.getString("target_text") else null
-            val inputPayload = if (obj.has("input_payload") && !obj.isNull("input_payload")) obj.getString("input_payload") else null
+            val targetText = if (obj.has("target_text") && !obj.isNull("target_text")) {
+                obj.getString("target_text")
+            } else if (obj.has("input_text") && !obj.isNull("input_text")) {
+                obj.getString("input_text")
+            } else null
 
             val actionType = when (actionName) {
-                "INPUT_TEXT" -> ActionType.INPUT
+                "INPUT", "INPUT_TEXT" -> ActionType.INPUT
                 "SWIPE" -> ActionType.SWIPE
                 "SCROLL" -> ActionType.SCROLL
                 "EXTRACT_RESULT" -> ActionType.EXTRACT_RESULT
-                "TERMINATE" -> ActionType.TERMINATE
+                "COMPLETE", "TERMINATE" -> ActionType.TERMINATE
                 else -> ActionType.CLICK
             }
 
             ActionRule(
                 type = actionType,
-                textPayload = inputPayload ?: targetText
+                textPayload = targetText
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse AI action response JSON", e)

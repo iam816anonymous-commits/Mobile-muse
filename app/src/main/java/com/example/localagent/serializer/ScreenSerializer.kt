@@ -8,32 +8,42 @@ object ScreenSerializer {
 
     fun serializeScreen(nodes: List<NodeData>): String {
         val jsonArray = JSONArray()
+        var indexCounter = 0
+
         for (node in nodes) {
-            // Filter out intermediate container nodes that contain no text, description, or actions
+            // Filter out non-actionable layout containers, invisible nodes, and empty nodes
             if (node.text.isNull_or_blank() && node.contentDescription.isNull_or_blank() && !node.hasActions) {
                 continue
             }
 
-            val jsonObject = JSONObject()
-            if (!node.text.isNull_or_blank()) {
-                jsonObject.put("text", node.text)
+            val simpleClassName = node.className?.substringAfterLast('.') ?: "View"
+            val jsonObject = JSONObject().apply {
+                put("index", indexCounter++)
+                put("type", simpleClassName)
+                put("class", node.className ?: "")
+                if (!node.text.isNull_or_blank()) {
+                    put("text", node.text)
+                }
+                if (!node.contentDescription.isNull_or_blank()) {
+                    put("desc", node.contentDescription)
+                }
+                val boundsObj = JSONObject().apply {
+                    put("l", node.boundsInScreen.left)
+                    put("t", node.boundsInScreen.top)
+                    put("r", node.boundsInScreen.right)
+                    put("b", node.boundsInScreen.bottom)
+                }
+                put("bounds", boundsObj)
             }
-            if (!node.contentDescription.isNull_or_blank()) {
-                jsonObject.put("desc", node.contentDescription)
-            }
-            if (!node.className.isNull_or_blank()) {
-                jsonObject.put("class", node.className)
-            }
-            val boundsObj = JSONObject().apply {
-                put("l", node.boundsInScreen.left)
-                put("t", node.boundsInScreen.top)
-                put("r", node.boundsInScreen.right)
-                put("b", node.boundsInScreen.bottom)
-            }
-            jsonObject.put("bounds", boundsObj)
             jsonArray.put(jsonObject)
         }
-        return jsonArray.toString()
+
+        val fullOutput = jsonArray.toString()
+        return if (fullOutput.length > 4000) {
+            fullOutput.substring(0, 4000)
+        } else {
+            fullOutput
+        }
     }
 
     private fun String?.isNull_or_blank(): Boolean {
