@@ -54,7 +54,11 @@ open class MainActivity : Activity() {
     // Tab 1 UI
     private lateinit var tvStatusIndicator: TextView
     private lateinit var etGoalInput: EditText
+    private lateinit var btnEngage: Button
+    private lateinit var btnVoiceMic: Button
     private lateinit var tvCompactTerminalLog: TextView
+    private lateinit var telemetryScrollView: ScrollView
+    private lateinit var tvPermissionBanner: TextView
 
     // Tab 2 UI
     private lateinit var llMemoryCardsContainer: LinearLayout
@@ -164,6 +168,20 @@ open class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
 
+        tvPermissionBanner = TextView(this).apply {
+            text = "Critical Permissions Missing: Storage, Mic, or Camera denied. Tap to grant."
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#FF0055"))
+            setPadding(16, 12, 16, 12)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setOnClickListener {
+                PermissionManager.checkAndRequestInitialPermissions(this@MainActivity)
+            }
+        }
+
         tvStatusIndicator = TextView(this).apply {
             text = "● STATUS: IDLE"
             textSize = 14f
@@ -188,7 +206,7 @@ open class MainActivity : Activity() {
             setPadding(0, 12, 0, 16)
         }
 
-        val btnEngage = Button(this).apply {
+        btnEngage = Button(this).apply {
             text = "[ENGAGE]"
             setTextColor(Color.parseColor("#0A0E17"))
             typeface = Typeface.DEFAULT_BOLD
@@ -204,7 +222,7 @@ open class MainActivity : Activity() {
             }
         }
 
-        val btnVoiceMic = Button(this).apply {
+        btnVoiceMic = Button(this).apply {
             text = "🎤 [MIC]"
             setTextColor(Color.parseColor("#0A0E17"))
             typeface = Typeface.DEFAULT_BOLD
@@ -241,7 +259,7 @@ open class MainActivity : Activity() {
         commandButtonRow.addView(btnAbort)
 
         val terminalTitle = TextView(this).apply {
-            text = "LIVE TACTICAL STREAM (LAST 4 ACTIONS)"
+            text = "LIVE TACTICAL STREAM"
             textSize = 11f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#00F0FF"))
@@ -253,16 +271,23 @@ open class MainActivity : Activity() {
             textSize = 11f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#00F0FF"))
-            setBackgroundColor(Color.parseColor("#111625"))
             setPadding(16, 16, 16, 16)
-            maxLines = 4
         }
 
+        val scrollPx = (220 * resources.displayMetrics.density).toInt()
+        telemetryScrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, scrollPx)
+            isFillViewport = true
+            setBackgroundColor(Color.parseColor("#111625"))
+            addView(tvCompactTerminalLog)
+        }
+
+        tabCommandView.addView(tvPermissionBanner)
         tabCommandView.addView(tvStatusIndicator)
         tabCommandView.addView(etGoalInput)
         tabCommandView.addView(commandButtonRow)
         tabCommandView.addView(terminalTitle)
-        tabCommandView.addView(tvCompactTerminalLog)
+        tabCommandView.addView(telemetryScrollView)
 
         // TAB 2: NEURAL MEMORY BANK
         tabMemoryView = LinearLayout(this).apply {
@@ -376,7 +401,7 @@ open class MainActivity : Activity() {
             textSize = 10f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
-            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            setOnClickListener { PermissionManager.openAccessibilitySettings(this@MainActivity) }
         }
         permGridRow1.addView(tvAccessibilityBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow1.addView(btnAccessSettings)
@@ -388,11 +413,7 @@ open class MainActivity : Activity() {
             textSize = 10f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
-            setOnClickListener {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                }
-            }
+            setOnClickListener { PermissionManager.requestOverlayPermission(this@MainActivity) }
         }
         permGridRow2.addView(tvOverlayBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow2.addView(btnOverlaySettings)
@@ -404,15 +425,7 @@ open class MainActivity : Activity() {
             textSize = 10f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
-            setOnClickListener {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    try {
-                        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-                    } catch (e: Exception) {
-                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    }
-                }
-            }
+            setOnClickListener { PermissionManager.requestBatteryExemption(this@MainActivity) }
         }
         permGridRow3.addView(tvBatteryBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow3.addView(btnBatterySettings)
@@ -424,9 +437,7 @@ open class MainActivity : Activity() {
             textSize = 10f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
-            setOnClickListener {
-                PermissionManager.checkAndRequestRuntimePermissions(this@MainActivity)
-            }
+            setOnClickListener { PermissionManager.checkAndRequestInitialPermissions(this@MainActivity) }
         }
         permGridRow4.addView(tvAudioBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow4.addView(btnAudioSettings)
@@ -438,9 +449,7 @@ open class MainActivity : Activity() {
             textSize = 10f
             setTextColor(Color.parseColor("#00F0FF"))
             background = createBorderDrawable(Color.parseColor("#334155"))
-            setOnClickListener {
-                PermissionManager.checkAndRequestRuntimePermissions(this@MainActivity)
-            }
+            setOnClickListener { PermissionManager.checkAndRequestInitialPermissions(this@MainActivity) }
         }
         permGridRow5.addView(tvStorageBadge.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         permGridRow5.addView(btnStorageSettings)
@@ -640,6 +649,16 @@ open class MainActivity : Activity() {
         tvStorageBadge.text = if (hasStorage) "STORAGE: [GRANTED]" else "STORAGE: [REQUIRED]"
         tvStorageBadge.background = createBadgeDrawable(if (hasStorage) Color.parseColor("#16A34A") else Color.parseColor("#FF0055"))
 
+        val allRuntimeGranted = hasAudio && hasStorage
+        btnEngage.isEnabled = allRuntimeGranted
+        btnVoiceMic.isEnabled = allRuntimeGranted
+
+        if (!allRuntimeGranted) {
+            tvPermissionBanner.visibility = View.VISIBLE
+        } else {
+            tvPermissionBanner.visibility = View.GONE
+        }
+
         try {
             val memoryInfo = ActivityManager.MemoryInfo()
             (getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.getMemoryInfo(memoryInfo)
@@ -652,10 +671,9 @@ open class MainActivity : Activity() {
 
     fun appendLog(logLine: String) {
         telemetryLogs.append(logLine).append("\n")
-        val lines = telemetryLogs.toString().split("\n").filter { it.isNotBlank() }
-        val last4 = lines.takeLast(4).joinToString("\n")
         runOnUiThread {
-            tvCompactTerminalLog.text = last4
+            tvCompactTerminalLog.text = telemetryLogs.toString()
+            telemetryScrollView.post { telemetryScrollView.fullScroll(View.FOCUS_DOWN) }
         }
     }
 

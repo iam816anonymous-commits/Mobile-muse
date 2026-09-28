@@ -8,12 +8,9 @@ import android.net.Uri
 import android.util.Log
 import com.example.localagent.LocalAgentService
 import com.example.localagent.engine.AppResolver
+import com.example.localagent.engine.AutonomousEngine
 import com.example.localagent.engine.DiagnosticRunner
-import com.example.localagent.engine.WebWorkflowLearner
 import com.example.localagent.intents.DeviceToolsManager
-import com.example.localagent.intents.SemanticIntentRouter
-import com.example.localagent.skills.CalculatorSkill
-import com.example.localagent.skills.CameraSkill
 import com.example.localagent.state.TaskGoal
 import com.example.localagent.vision.GeminiVisionBridge
 import com.example.localagent.vision.LensLauncher
@@ -69,6 +66,7 @@ class GoalDispatcher(
                             Log.w(TAG, "TaskManager state call ignored during mock test", e)
                         }
 
+                        // Local Primitives & Hardware
                         if (lowerGoal.contains("flashlight on") || lowerGoal.contains("turn on torch")) {
                             val tools = DeviceToolsManager(service)
                             tools.toggleFlashlight(true)
@@ -77,25 +75,9 @@ class GoalDispatcher(
                             val tools = DeviceToolsManager(service)
                             tools.toggleFlashlight(false)
                             try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else if (lowerGoal.contains("calculate") || lowerGoal.contains("compute") || lowerGoal.contains("sum")) {
-                            val expression = extractExpression(goalText)
-                            service.broadcastTelemetryLog("SKILL", "Calculator executed: $expression")
-                            try {
-                                val calculatorSkill = CalculatorSkill(service)
-                                calculatorSkill.executeCalculation(expression, service.voiceSynthesizer?.let { null })
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                            try { service.stateManager.completeTask() } catch (e: Exception) {}
-                        } else if (lowerGoal.contains("photo") || lowerGoal.contains("picture") || lowerGoal.contains("camera")) {
-                            val useFront = lowerGoal.contains("front")
-                            service.broadcastTelemetryLog("SKILL", "Camera photo captured successfully (Front: $useFront)")
-                            try {
-                                val cameraSkill = CameraSkill(service)
-                                cameraSkill.capturePhoto(useFrontCamera = useFront)
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                        } else if (lowerGoal.contains("vibrate") || lowerGoal.contains("haptic")) {
+                            val tools = DeviceToolsManager(service)
+                            tools.triggerHaptic(150L)
                             try { service.stateManager.completeTask() } catch (e: Exception) {}
                         } else if (lowerGoal.contains("what is in this photo") || lowerGoal.contains("describe last photo") || lowerGoal.contains("read text on screen")) {
                             val visionBridge = GeminiVisionBridge()
@@ -112,27 +94,13 @@ class GoalDispatcher(
                             service.broadcastTelemetryLog("VISION", "Dispatched Google Lens search")
                             try { service.stateManager.completeTask() } catch (e: Exception) {}
                         } else {
-                            val handledByRouter = try {
-                                SemanticIntentRouter.routeAndDispatch(service, goalText)
+                            // Generic ReAct UI Agent Pipeline
+                            try {
+                                AppResolver.resolveAndLaunch(service, goalText)
+                                AutonomousEngine.processCurrentScreen(service, goalText)
                             } catch (e: Exception) {
-                                false
-                            }
-
-                            if (!handledByRouter) {
-                                val hasWebKeyword = lowerGoal.contains("search") || lowerGoal.contains("browse") || lowerGoal.contains("lookup") || lowerGoal.contains("google")
-                                if (hasWebKeyword) {
-                                    try {
-                                        WebWorkflowLearner.learnAndExecute(service, goalText, "TargetApp")
-                                    } catch (e: Exception) {
-                                        AppResolver.resolveAndLaunch(service, goalText)
-                                    }
-                                } else {
-                                    // Eliminate Default Chrome Fallback
-                                    Log.w(TAG, "Unrecognized goal aborted: '$goalText'")
-                                    service.broadcastTelemetryLog("WARN", "Unrecognized goal aborted")
-                                    service.stateManager.reset()
-                                    service.voiceSynthesizer?.speak("Command not understood. Please specify an app or action.")
-                                }
+                                Log.e(TAG, "ReAct execution loop encountered error", e)
+                                service.broadcastTelemetryLog("WARN", "ReAct loop error: ${e.message}")
                             }
                         }
 
@@ -155,14 +123,5 @@ class GoalDispatcher(
                 }
             }
         }
-    }
-
-    private fun extractExpression(goalText: String): String {
-        val keywords = listOf("calculate", "compute", "sum", "and sum", "open calculator and sum")
-        var expr = goalText
-        keywords.forEach { kw ->
-            expr = expr.replace(kw, "", ignoreCase = true)
-        }
-        return expr.trim().ifEmpty { "1+1" }
     }
 }

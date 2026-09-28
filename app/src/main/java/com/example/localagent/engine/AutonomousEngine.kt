@@ -37,12 +37,12 @@ object AutonomousEngine {
     }
 
     private fun processCurrentScreenInternal(service: LocalAgentService, goalText: String) {
-        // Enforce strict 10-step circuit breaker limit
+        // Enforce strict 8-step ReAct circuit breaker limit
         val currentStep = service.stateManager.getCurrentState().currentStepIndex
-        if (currentStep >= 10) {
-            Log.w(TAG, "Strict step limit reached ($currentStep >= 10). Aborting to prevent infinite loop.")
-            service.broadcastTelemetryLog("WARN", "Task step limit reached ($currentStep >= 10). Aborting to prevent infinite loop.")
-            service.voiceSynthesizer?.speak("Task step limit reached. Aborting to prevent infinite loop.")
+        if (currentStep >= 8) {
+            Log.w(TAG, "ReAct circuit breaker step limit reached ($currentStep >= 8). Aborting to prevent infinite loop.")
+            service.broadcastTelemetryLog("WARN", "ReAct step limit reached ($currentStep >= 8). Returning to IDLE.")
+            service.voiceSynthesizer?.speak("ReAct step limit reached. Aborting task.")
             service.stateManager.reset()
             return
         }
@@ -102,7 +102,7 @@ object AutonomousEngine {
                 return
             }
 
-            // 2. Query AI Bridge if no local rule exists
+            // 2. Query AI Bridge with ReAct Prompt format if no local rule exists
             val serializedScreen = ScreenSerializer.serializeScreen(extractedNodes)
             service.broadcastTelemetryLog("SYS", "Querying AI Bridge for unknown screen state...")
             service.aiBridgeClient.sendPayloadAsync(serializedScreen, goalText) { result ->
@@ -120,6 +120,9 @@ object AutonomousEngine {
                             success = true
                         )
                         if (parsedRule.type == ActionType.TERMINATE) {
+                            val resultText = parsedRule.textPayload ?: "Task complete."
+                            service.broadcastTelemetryLog("RESULT", "Verified output: $resultText")
+                            service.voiceSynthesizer?.speak("The result is $resultText")
                             service.stateManager.completeTask()
                         }
                     } else {
@@ -180,15 +183,27 @@ object AutonomousEngine {
         return try {
             val cleanJson = jsonStr.replace("```json", "").replace("```", "").trim()
             val obj = JSONObject(cleanJson)
+            val isComplete = obj.optBoolean("is_complete", false)
+            val extractedResult = if (obj.has("extracted_result") && !obj.isNull("extracted_result")) {
+                obj.getString("extracted_result")
+            } else null
+
+            if (isComplete) {
+                return ActionRule(
+                    type = ActionType.TERMINATE,
+                    textPayload = extractedResult ?: "Task complete."
+                )
+            }
+
             val actionName = obj.optString("action", "CLICK").uppercase()
-            val targetText = if (obj.has("target_text") && !obj.isNull("target_text")) {
-                obj.getString("target_text")
-            } else if (obj.has("input_text") && !obj.isNull("input_text")) {
+            val targetText = if (obj.has("input_text") && !obj.isNull("input_text")) {
                 obj.getString("input_text")
+            } else if (obj.has("target_text") && !obj.isNull("target_text")) {
+                obj.getString("target_text")
             } else null
 
             val actionType = when (actionName) {
-                "INPUT", "INPUT_TEXT" -> ActionType.INPUT
+                "TYPE", "INPUT", "INPUT_TEXT" -> ActionType.INPUT
                 "SWIPE" -> ActionType.SWIPE
                 "SCROLL" -> ActionType.SCROLL
                 "EXTRACT_RESULT" -> ActionType.EXTRACT_RESULT

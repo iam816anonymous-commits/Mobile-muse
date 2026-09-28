@@ -31,6 +31,23 @@ class AutonomousEngineAndAppResolverTest {
     }
 
     @Test
+    fun testReActResponseParsing() {
+        val json = """{"thought": "Need to click search", "action": "CLICK", "target_index": 0, "is_complete": false}"""
+        val rule = AutonomousEngine.parseAiActionResponse(json)
+
+        assertNotNull(rule)
+    }
+
+    @Test
+    fun testReActCompletionParsing() {
+        val json = """{"thought": "Task finished", "action": "TERMINATE", "is_complete": true, "extracted_result": "42"}"""
+        val rule = AutonomousEngine.parseAiActionResponse(json)
+
+        assertNotNull(rule)
+        assertEquals("42", rule?.textPayload)
+    }
+
+    @Test
     fun testStallDetectorAndQueryFormulator() {
         StallDetector.reset()
         StallDetector.recordFailure()

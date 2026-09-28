@@ -11,7 +11,7 @@ object ScreenSerializer {
         var indexCounter = 0
 
         for (node in nodes) {
-            // Filter out non-actionable layout containers, invisible nodes, and empty nodes
+            // Prune non-essential container nodes, invisible nodes, and empty nodes
             if (node.text.isNull_or_blank() && node.contentDescription.isNull_or_blank() && !node.hasActions) {
                 continue
             }
@@ -39,8 +39,9 @@ object ScreenSerializer {
         }
 
         val fullOutput = jsonArray.toString()
-        return if (fullOutput.length > 4000) {
-            fullOutput.substring(0, 4000)
+        // Ensure screen representation fits well under 1500 tokens (approx. 3500 chars max)
+        return if (fullOutput.length > 3500) {
+            fullOutput.substring(0, 3500)
         } else {
             fullOutput
         }

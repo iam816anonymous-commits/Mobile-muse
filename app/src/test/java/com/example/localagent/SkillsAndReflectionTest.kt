@@ -32,7 +32,7 @@ class SkillsAndReflectionTest {
 
     @Test
     fun testPermissionManagerGroupA() {
-        val perms = PermissionManager.GROUP_A_PERMISSIONS
+        val perms = PermissionManager.RUNTIME_PERMISSIONS
         assertTrue(perms.contains(android.Manifest.permission.WRITE_EXTERNAL_STORAGE))
         assertTrue(perms.contains(android.Manifest.permission.READ_EXTERNAL_STORAGE))
     }

@@ -15,17 +15,17 @@ import com.example.localagent.MainActivity
 
 object PermissionManager {
 
-    const val REQUEST_CODE_RUNTIME = 2001
+    const val REQUEST_CODE_RUNTIME = 1001
 
-    val GROUP_A_PERMISSIONS = arrayOf(
+    val RUNTIME_PERMISSIONS = arrayOf(
         Manifest.permission.WRITE_EXTERNAL_STORAGE,
         Manifest.permission.READ_EXTERNAL_STORAGE,
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CAMERA
     )
 
-    fun checkAndRequestRuntimePermissions(activity: Activity): Boolean {
-        val missing = GROUP_A_PERMISSIONS.filter {
+    fun checkAndRequestInitialPermissions(activity: Activity): Boolean {
+        val missing = RUNTIME_PERMISSIONS.filter {
             ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
         }
 
@@ -36,18 +36,38 @@ object PermissionManager {
         return true
     }
 
+    fun openAccessibilitySettings(context: Context) {
+        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    fun requestOverlayPermission(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+        }
+    }
+
+    fun requestBatteryExemption(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")))
+            } catch (e: Exception) {
+                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }
+    }
+
     fun checkGuidedOnboarding(activity: Activity): Boolean {
-        if (!checkAndRequestRuntimePermissions(activity)) return false
+        if (!checkAndRequestInitialPermissions(activity)) return false
 
         // Check 1: Accessibility Service
         if (!MainActivity.isAccessibilityServiceEnabled(activity, com.example.localagent.LocalAgentService::class.java)) {
-            activity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            openAccessibilitySettings(activity)
             return false
         }
 
         // Check 2: Overlay
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(activity)) {
-            activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${activity.packageName}")))
+            requestOverlayPermission(activity)
             return false
         }
 
@@ -55,11 +75,7 @@ object PermissionManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager
             if (pm?.isIgnoringBatteryOptimizations(activity.packageName) == false) {
-                try {
-                    activity.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${activity.packageName}")))
-                } catch (e: Exception) {
-                    activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                }
+                requestBatteryExemption(activity)
                 return false
             }
         }
