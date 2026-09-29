@@ -7,7 +7,6 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.localagent.LocalAgentService
 import com.example.localagent.engine.AppIndexer
 import com.example.localagent.engine.GenericUIOperator
-import com.example.localagent.voice.VoiceEngine
 import com.example.localagent.voice.VoiceSynthesizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +21,14 @@ object CalculatorSkill {
             val agentService = service as? LocalAgentService
             agentService?.isProcessingGoal = true
             try {
-                val calcPackage = AppIndexer.resolveAppByDomain("calculator") ?: "com.android.calculator2"
+                val calcIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_APP_CALCULATOR)
+                }
+                val resolvedActivity = service.packageManager.resolveActivity(calcIntent, 0)
+                val calcPackage = resolvedActivity?.activityInfo?.packageName
+                    ?: AppIndexer.resolveAppByQuery("calculator")
+                    ?: "com.google.android.calculator"
+
                 val launchIntent = service.packageManager.getLaunchIntentForPackage(calcPackage)?.apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
