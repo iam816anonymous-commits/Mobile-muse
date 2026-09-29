@@ -26,7 +26,7 @@ object CalculatorSkill {
                 }
                 val resolvedActivity = service.packageManager.resolveActivity(calcIntent, 0)
                 val calcPackage = resolvedActivity?.activityInfo?.packageName
-                    ?: AppIndexer.resolveAppByQuery("calculator")
+                    ?: AppIndexer.resolveAppByQuery(service, "calculator")
                     ?: "com.google.android.calculator"
 
                 val launchIntent = service.packageManager.getLaunchIntentForPackage(calcPackage)?.apply {
