@@ -49,12 +49,15 @@ object TaskExecutionHub {
 
         // --- LAYER 2: ACCESSIBILITY NODE CRAWLING & SPECIALIZED SKILLS ---
 
-        // Specialized Skill 1: Camera Hardware Capture
-        if (lowerGoal.contains("take photo") || lowerGoal.contains("take picture") || lowerGoal.contains("capture photo") || lowerGoal.contains("take selfie")) {
-            service.broadcastTelemetryLog("HUB", "Layer 2 [Skill]: Routing to CameraSkill")
-            val cameraSkill = CameraSkill(service)
-            val isFront = lowerGoal.contains("selfie") || lowerGoal.contains("front")
-            cameraSkill.capturePhoto(useFrontCamera = isFront)
+        // Specialized Skill 1: Camera Hardware Capture (Front & Rear)
+        if (lowerGoal.contains("take selfie") || lowerGoal.contains("click front photo") || lowerGoal.contains("take front picture")) {
+            service.broadcastTelemetryLog("HUB", "Layer 2 [Skill]: Routing to CameraSkill (Front Camera)")
+            CameraSkill.capturePhoto(service, isFront = true)
+            return true
+        } else if (lowerGoal.contains("take photo") || lowerGoal.contains("click photo") || lowerGoal.contains("take picture") || lowerGoal.contains("capture photo")) {
+            service.broadcastTelemetryLog("HUB", "Layer 2 [Skill]: Routing to CameraSkill (Rear Camera)")
+            val isFront = lowerGoal.contains("front") || lowerGoal.contains("selfie")
+            CameraSkill.capturePhoto(service, isFront = isFront)
             return true
         }
 
@@ -75,8 +78,7 @@ object TaskExecutionHub {
         // Specialized Skill 4: Calculator Skill Fallback (if in-memory math failed)
         if (lowerGoal.contains("calculate") || lowerGoal.contains("compute")) {
             service.broadcastTelemetryLog("HUB", "Layer 2 [Skill]: Routing to CalculatorSkill fallback")
-            val calcSkill = CalculatorSkill(service)
-            calcSkill.executeCalculation(rawGoal, service.voiceSynthesizer)
+            CalculatorSkill.evaluateMath(service, rawGoal)
             return true
         }
 

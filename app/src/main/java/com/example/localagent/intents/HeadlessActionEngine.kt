@@ -21,23 +21,23 @@ object HeadlessActionEngine {
 
         // 1. Web Search
         if (lowerGoal.contains("search ") || lowerGoal.contains("google ") || lowerGoal.contains("look up ")) {
-            val query = QueryPayloadSanitizer.sanitizeSearchQuery(rawGoal)
+            val cleanQuery: String = QueryPayloadSanitizer.extractSearchQuery(rawGoal)
             val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
-                putExtra(SearchManager.QUERY, query)
+                putExtra(SearchManager.QUERY, cleanQuery)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            return launchIntentSafely(service, intent, "Web Search ($query)")
+            return launchIntentSafely(service, intent, "Web Search ($cleanQuery)")
         }
 
         // 2. YouTube Direct Search / Play
         if (lowerGoal.contains("youtube") || (lowerGoal.contains("play ") && lowerGoal.contains("video"))) {
-            val query = QueryPayloadSanitizer.sanitizeSearchQuery(rawGoal)
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
+            val cleanQuery: String = QueryPayloadSanitizer.extractSearchQuery(rawGoal)
+            val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
             val url = "https://www.youtube.com/results?search_query=$encodedQuery"
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            return launchIntentSafely(service, intent, "YouTube ($query)")
+            return launchIntentSafely(service, intent, "YouTube ($cleanQuery)")
         }
 
         // 3. Instant Message Staging (WhatsApp / SMS)
