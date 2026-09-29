@@ -74,6 +74,7 @@ open class LocalAgentService : AccessibilityService() {
 
         const val MAX_TRAVERSAL_DEPTH = 6
         private const val DOUBLE_PRESS_TIMEOUT_MS = 500L
+        private const val MASTER_TASK_TIMEOUT_MS = 8000L
     }
 
     val stateManager = TaskStateManager(maxStepsLimit = 15)
@@ -91,6 +92,7 @@ open class LocalAgentService : AccessibilityService() {
     private val backgroundExecutor = Executors.newSingleThreadScheduledExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private var lastVolumeDownTime: Long = 0L
+    private var masterTimeoutRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -115,6 +117,7 @@ open class LocalAgentService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        clearMasterTaskTimeoutGuard()
         com.example.localagent.hud.PointerIndicatorManager.destroy()
         instance = null
         hudManager.hide()
@@ -124,6 +127,25 @@ open class LocalAgentService : AccessibilityService() {
         unregisterDiagnosticReceiver()
         serviceScope.cancel()
         backgroundExecutor.shutdown()
+    }
+
+    fun startMasterTaskTimeoutGuard(timeoutMs: Long = MASTER_TASK_TIMEOUT_MS) {
+        clearMasterTaskTimeoutGuard()
+        masterTimeoutRunnable = Runnable {
+            if (isProcessingGoal || stateManager.getCurrentState().status == com.example.localagent.state.AgentStatus.RUNNING) {
+                Log.w(TAG, "Master task timeout reached (${timeoutMs}ms). Unconditionally resetting agent lock.")
+                broadcastTelemetryLog("SYS", "Master task timeout (${timeoutMs}ms) reached. Aborting task and returning to IDLE.")
+                haltAndResetAgent("MASTER_TASK_TIMEOUT_EXCEEDED")
+            }
+        }
+        mainHandler.postDelayed(masterTimeoutRunnable!!, timeoutMs)
+    }
+
+    fun clearMasterTaskTimeoutGuard() {
+        masterTimeoutRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            masterTimeoutRunnable = null
+        }
     }
 
     fun broadcastTelemetryLog(typeTag: String, message: String) {
@@ -137,6 +159,8 @@ open class LocalAgentService : AccessibilityService() {
     }
 
     fun broadcastGoalCompleted(goalText: String, status: String, resultData: String) {
+        clearMasterTaskTimeoutGuard()
+        isProcessingGoal = false
         val intent = Intent(ACTION_GOAL_COMPLETED).apply {
             putExtra(EXTRA_GOAL_TEXT, goalText)
             putExtra(EXTRA_STATUS, status)
@@ -547,16 +571,21 @@ open class LocalAgentService : AccessibilityService() {
 
     fun haltAndResetAgent(reason: String) {
         Log.w(TAG, "Halting and resetting agent: $reason")
+        clearMasterTaskTimeoutGuard()
         val currentGoal = stateManager.getCurrentState().goal?.description ?: ""
-        stateManager.haltTask(reason)
-        memoryLedger.recordStep(
-            stepIndex = stateManager.getCurrentState().currentStepIndex,
-            action = "KILL_SWITCH",
-            success = false,
-            failureCode = reason
-        )
-        broadcastGoalCompleted(currentGoal, "FAILURE", reason)
-        broadcastTelemetryLog("SYS", "ABORT EXECUTED: $reason")
-        stateManager.reset()
+        try {
+            stateManager.haltTask(reason)
+            memoryLedger.recordStep(
+                stepIndex = stateManager.getCurrentState().currentStepIndex,
+                action = "KILL_SWITCH",
+                success = false,
+                failureCode = reason
+            )
+            broadcastGoalCompleted(currentGoal, "FAILURE", reason)
+            broadcastTelemetryLog("SYS", "ABORT EXECUTED: $reason")
+        } finally {
+            isProcessingGoal = false
+            stateManager.reset()
+        }
     }
 }

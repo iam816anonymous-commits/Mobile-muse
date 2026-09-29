@@ -9,7 +9,8 @@ import com.example.localagent.LocalAgentService
 import com.example.localagent.engine.AppIndexer
 import com.example.localagent.engine.AppLauncher
 import com.example.localagent.engine.GenericUIOperator
-import com.example.localagent.voice.VoiceEngine
+import com.example.localagent.engine.MotorActuator
+import com.example.localagent.voice.VoiceSynthesizer
 
 class CalculatorSkill(private val service: LocalAgentService) {
 
@@ -29,7 +30,7 @@ class CalculatorSkill(private val service: LocalAgentService) {
         }
     }
 
-    fun executeCalculation(expression: String, voiceSynthesizer: com.example.localagent.voice.VoiceSynthesizer? = null) {
+    fun executeCalculation(expression: String, voiceSynthesizer: VoiceSynthesizer? = null) {
         val sanitized = sanitizeExpression(expression)
 
         // Step A: Launch installed Calculator app
@@ -58,61 +59,109 @@ class CalculatorSkill(private val service: LocalAgentService) {
         })
     }
 
-    private fun performCalculatorSequence(expression: String, voiceSynthesizer: com.example.localagent.voice.VoiceSynthesizer?) {
-        val root = service.getActiveWindowRoot() ?: return
-        try {
-            // Step C: Check if expression contains scientific operators (^ or %)
-            if (expression.contains("^") || expression.contains("%")) {
-                val toggleScientificNode = findScientificToggleNode(root)
-                if (toggleScientificNode != null) {
-                    try {
-                        service.performClickWithFallback(toggleScientificNode)
-                        service.broadcastTelemetryLog("CALC", "Toggled scientific keyboard expansion")
-                        try { Thread.sleep(300L) } catch (e: Exception) {}
-                    } finally {
-                        toggleScientificNode.recycle()
+    private fun performCalculatorSequence(expression: String, voiceSynthesizer: VoiceSynthesizer?) {
+        val tokens = expression.toCharArray().map { it.toString() }
+
+        // Process keys with explicit 120ms delay and 5-iteration limit per key
+        for (token in tokens) {
+            var found = false
+            for (attempt in 1..5) {
+                val root = service.getActiveWindowRoot()
+                if (root != null) {
+                    val node = findMatchingNodeByLabel(root, token.trim())
+                    if (node != null) {
+                        try {
+                            val clickableNode = findClickableAncestor(node) ?: node
+                            val clicked = MotorActuator.click(service, clickableNode)
+                            if (clickableNode != node) clickableNode.recycle()
+                            if (clicked) {
+                                found = true
+                                root.recycle()
+                                node.recycle()
+                                break
+                            }
+                        } finally {
+                            if (!node.isRecycled) node.recycle()
+                        }
                     }
+                    root.recycle()
                 }
+                try { Thread.sleep(50L) } catch (e: Exception) {}
             }
 
-            val tokens = expression.toCharArray().map { it.toString() }
-            GenericUIOperator.sequenceTap(root, tokens, service, 150L)
-            GenericUIOperator.confirmAction(root, listOf("=", "equals"), service)
+            if (!found) {
+                val msg = "Failed to locate calculator key '$token' after 5 attempts."
+                service.broadcastTelemetryLog("CALC", msg)
+                voiceSynthesizer?.speak("Calculator key $token not found.")
+                break
+            }
 
-            // Step D: Extract finalized numeric display matching ^[0-9,.]+$
-            Handler(Looper.getMainLooper()).postDelayed({
-                val pollRoot = service.getActiveWindowRoot()
-                if (pollRoot != null) {
-                    try {
-                        val leafNumbers = GenericUIOperator.harvestLeafText(pollRoot) { text -> text.matches(Regex("^[0-9,.]+$")) }
-                        val resultText = leafNumbers.lastOrNull() ?: extractResultText(pollRoot, pollRoot.packageName?.toString() ?: "")
-                        service.broadcastGoalCompleted(expression, "SUCCESS", resultText)
-                        voiceSynthesizer?.speak("The calculated result is $resultText")
-                    } finally {
-                        pollRoot.recycle()
-                    }
-                }
-            }, 500L)
-        } finally {
-            root.recycle()
+            // Explicit 120ms delay between consecutive key presses for layout buffer registration
+            try { Thread.sleep(120L) } catch (e: Exception) {}
         }
+
+        // Confirm equals
+        var equalsConfirmed = false
+        for (attempt in 1..5) {
+            val root = service.getActiveWindowRoot()
+            if (root != null) {
+                try {
+                    if (GenericUIOperator.confirmAction(root, listOf("=", "equals"), service)) {
+                        equalsConfirmed = true
+                        root.recycle()
+                        break
+                    }
+                } finally {
+                    if (!root.isRecycled) root.recycle()
+                }
+            }
+            try { Thread.sleep(50L) } catch (e: Exception) {}
+        }
+
+        // Extract finalized numeric display matching ^[0-9,.]+$
+        Handler(Looper.getMainLooper()).postDelayed({
+            val pollRoot = service.getActiveWindowRoot()
+            if (pollRoot != null) {
+                try {
+                    val leafNumbers = GenericUIOperator.harvestLeafText(pollRoot) { text -> text.matches(Regex("^[0-9,.]+$")) }
+                    val resultText = leafNumbers.lastOrNull() ?: extractResultText(pollRoot, pollRoot.packageName?.toString() ?: "")
+                    service.broadcastGoalCompleted(expression, "SUCCESS", resultText)
+                    voiceSynthesizer?.speak("The calculated result is $resultText")
+                } finally {
+                    pollRoot.recycle()
+                }
+            }
+        }, 500L)
     }
 
-    private fun findScientificToggleNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
+    private fun findMatchingNodeByLabel(node: AccessibilityNodeInfo, label: String): AccessibilityNodeInfo? {
         val text = node.text?.toString()?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-        val id = node.viewIdResourceName?.lowercase() ?: ""
 
-        if (text == "inv" || text == "adv" || desc.contains("scientific") || desc.contains("advanced") || id.contains("pad_advanced")) {
+        if (text == label || desc == label || text.contains(label) || desc.contains(label)) {
             return AccessibilityNodeInfo.obtain(node)
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val match = findScientificToggleNode(child)
+            val match = findMatchingNodeByLabel(child, label)
             child.recycle()
             if (match != null) return match
+        }
+        return null
+    }
+
+    private fun findClickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (current.isClickable) {
+                return current
+            }
+            val parent = current.parent ?: break
+            if (current != node) {
+                current.recycle()
+            }
+            current = parent
         }
         return null
     }
