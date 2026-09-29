@@ -7,9 +7,8 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import com.example.localagent.LocalAgentService
-import com.example.localagent.engine.AppResolver
-import com.example.localagent.engine.AutonomousEngine
 import com.example.localagent.engine.DiagnosticRunner
+import com.example.localagent.engine.TaskExecutionHub
 import com.example.localagent.intents.DeviceToolsManager
 import com.example.localagent.state.TaskGoal
 import com.example.localagent.vision.GeminiVisionBridge
@@ -61,6 +60,7 @@ class GoalDispatcher(
 
                     coroutineScope.launch {
                         service.isProcessingGoal = true
+                        service.startMasterTaskTimeoutGuard(8000L)
                         try {
                             try {
                                 service.stateManager.startTask(TaskGoal(id = goalId, description = goalText))
@@ -104,9 +104,9 @@ class GoalDispatcher(
                                 service.broadcastTelemetryLog("VISION", "Dispatched Google Lens search")
                                 try { service.stateManager.completeTask() } catch (e: Exception) {}
                             } else {
-                                // TaskExecutionHub Routing
+                                // Strict Hybrid Fallback Hierarchy routing via TaskExecutionHub
                                 try {
-                                    com.example.localagent.engine.TaskExecutionHub.executeGoal(service, goalText)
+                                    TaskExecutionHub.executeGoal(service, goalText)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "TaskExecutionHub execution error", e)
                                     service.broadcastTelemetryLog("WARN", "TaskHub error: ${e.message}")
