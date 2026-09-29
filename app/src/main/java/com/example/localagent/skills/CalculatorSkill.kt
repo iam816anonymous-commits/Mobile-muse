@@ -16,6 +16,19 @@ import kotlinx.coroutines.launch
 object CalculatorSkill {
     private const val TAG = "CalculatorSkill"
 
+    fun sanitizeExpression(input: String): String {
+        val cleaned = input.lowercase()
+            .replace("calculator", "")
+            .replace("localagent", "")
+            .replace("calculate", "")
+            .replace("compute", "")
+            .replace("sum", "")
+            .replace("in", "")
+            .trim()
+        val matches = Regex("[0-9+\\-*/=.^%]+").findAll(cleaned).map { it.value }.joinToString("")
+        return matches.ifEmpty { "1+1" }
+    }
+
     fun evaluateMath(service: AccessibilityService, expression: String) {
         CoroutineScope(Dispatchers.Default).launch {
             val agentService = service as? LocalAgentService
