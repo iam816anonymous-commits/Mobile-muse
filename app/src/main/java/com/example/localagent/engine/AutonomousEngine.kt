@@ -82,44 +82,70 @@ object AutonomousEngine {
             service.traverseAndExtractNode(rootNode, extractedNodes)
 
             val packageName = rootNode.packageName?.toString() ?: "unknown"
-            val screenFingerprint = ScreenHasher.computeFingerprint(packageName, extractedNodes)
-            service.broadcastTelemetryLog("SYS", "Screen Fingerprint computed: #$screenFingerprint")
+            val adaptiveFingerprint = com.example.localagent.memory.ScreenFingerprinter.computeFingerprint(rootNode, packageName)
+            service.broadcastTelemetryLog("SYS", "Adaptive Structural Fingerprint computed: #$adaptiveFingerprint")
 
             // Loop Detection via Ring Buffer
             if (fingerprintRingBuffer.size >= 3) {
                 fingerprintRingBuffer.removeFirst()
             }
-            fingerprintRingBuffer.addLast(screenFingerprint)
+            fingerprintRingBuffer.addLast(adaptiveFingerprint)
 
-            if (fingerprintRingBuffer.size == 3 && fingerprintRingBuffer.all { it == screenFingerprint }) {
-                Log.w(TAG, "Loop detected! Fingerprint $screenFingerprint repeated 3 times. Stepping back and purging cached rule.")
-                service.broadcastTelemetryLog("RECOVERY", "Loop detected on #$screenFingerprint. Stepping back & purging rule.")
-                service.ruleLedger.removeTransition(screenFingerprint, goalText)
+            if (fingerprintRingBuffer.size == 3 && fingerprintRingBuffer.all { it == adaptiveFingerprint }) {
+                Log.w(TAG, "Loop detected! Fingerprint $adaptiveFingerprint repeated 3 times. Stepping back and purging cached rule.")
+                service.broadcastTelemetryLog("RECOVERY", "Loop detected on #$adaptiveFingerprint. Stepping back & purging rule.")
+                service.ruleLedger.removeTransition(adaptiveFingerprint, goalText)
                 fingerprintRingBuffer.clear()
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
                 return
             }
 
-            // 1. Check local rule graph
-            val cachedRule = service.ruleLedger.getActionRule(screenFingerprint, goalText)
-            if (cachedRule != null) {
-                Log.d(TAG, "Offline rule graph hit for $screenFingerprint. Executing cached action: ${cachedRule.type}")
-                service.broadcastTelemetryLog("CACHE", "Offline match found -> Replaying rule ${cachedRule.type}")
-                executeActionRule(service, cachedRule, rootNode)
-                StallDetector.reset()
-                service.memoryLedger.recordStep(
-                    stepIndex = service.stateManager.getCurrentState().currentStepIndex,
-                    action = "OFFLINE_RULE_ACTION: ${cachedRule.type}",
-                    success = true
-                )
-                return
+            // 1. Check Adaptive Rule Graph
+            val cachedNodeRule = com.example.localagent.memory.AdaptiveRuleGraph.findRule(adaptiveFingerprint, goalText)
+            if (cachedNodeRule != null) {
+                Log.d(TAG, "Adaptive Rule Graph hit for $adaptiveFingerprint. Replaying cached target '${cachedNodeRule.targetText}'")
+                service.broadcastTelemetryLog("CACHE", "Adaptive rule match -> Replaying '${cachedNodeRule.targetText}'")
+
+                val replayedNode = if (!cachedNodeRule.targetText.isNullOrEmpty()) {
+                    findNodeByText(rootNode, cachedNodeRule.targetText)
+                } else null
+
+                val clickSuccess = if (replayedNode != null) {
+                    try {
+                        MotorActuator.click(service, replayedNode)
+                    } finally {
+                        replayedNode.recycle()
+                    }
+                } else false
+
+                try { Thread.sleep(350L) } catch (e: Exception) {}
+
+                val postReplayRoot = service.getActiveWindowRoot()
+                val postFingerprint = com.example.localagent.memory.ScreenFingerprinter.computeFingerprint(postReplayRoot, packageName)
+                postReplayRoot?.recycle()
+
+                if (postFingerprint != adaptiveFingerprint && clickSuccess) {
+                    Log.i(TAG, "Adaptive rule replayed successfully with screen delta. Incrementing success count.")
+                    com.example.localagent.memory.AdaptiveRuleGraph.recordSuccess(cachedNodeRule)
+                    StallDetector.reset()
+                    return
+                } else {
+                    Log.w(TAG, "Adaptive rule replayed but screen delta failed. Incrementing failure count and overwriting...")
+                    com.example.localagent.memory.AdaptiveRuleGraph.recordFailure(cachedNodeRule)
+                }
             }
 
-            // 2. Local-first execution via UniversalAppOperator (API Bridge dormant/disconnected)
+            // 2. Local-first execution via UniversalAppOperator
             service.broadcastTelemetryLog("SYS", "Executing 100% offline Universal Task Pipeline...")
             val pipelineSuccess = UniversalAppOperator.executeTaskPipeline(service, goalText)
             if (pipelineSuccess) {
                 StallDetector.reset()
+                com.example.localagent.memory.AdaptiveRuleGraph.upsertRule(
+                    fingerprint = adaptiveFingerprint,
+                    goalIntent = goalText,
+                    actionType = "CLICK",
+                    targetText = goalText
+                )
                 service.memoryLedger.recordStep(
                     stepIndex = service.stateManager.getCurrentState().currentStepIndex,
                     action = "UNIVERSAL_PIPELINE_SUCCESS",
@@ -131,7 +157,7 @@ object AutonomousEngine {
                 if (StallDetector.isStalled(hasTargetIndex = false)) {
                     val stallCtx = StallDetector.buildContext(packageName, goalText, visibleLabels)
                     SelfHealingResolver.resolveAndHeal(service, stallCtx) { _, healedRule ->
-                        service.ruleLedger.addTransition(screenFingerprint, goalText, healedRule)
+                        service.ruleLedger.addTransition(adaptiveFingerprint, goalText, healedRule)
                         executeActionRule(service, healedRule, service.getActiveWindowRoot())
                     }
                 }
